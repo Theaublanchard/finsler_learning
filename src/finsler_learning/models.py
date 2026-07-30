@@ -17,6 +17,10 @@ from geodesic_toolbox import CoMetric
 from monai.networks.blocks import Convolution
 import torch.nn as nn
 
+############################
+# Base models
+############################
+
 
 class BaseEncoder(nn.Module):
     def __init__(self):
@@ -114,18 +118,107 @@ class BaseVAE(nn.Module):
         return x_reconstructed, mu, log_covariance
 
 
+class BaseStochasticDecoder(nn.Module):
+    def __init__(self):
+        super(BaseStochasticDecoder, self).__init__()
+        self.mu_branch = ...
+        self.log_std_branch = ...
+
+    def forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Forward pass of the stochastic decoder.
+
+        Parameters:
+        ----------
+        z : Tensor (batch_size, latent_dim)
+            The latent code to be decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        log_covariance : Tensor (batch_size, ...)
+            The estimated log covariance of the reconstructed tensor.
+        """
+
+
+class BaseStochasticVAE(nn.Module):
+    def __init__(self, encoder: BaseEncoder = None, decoder: BaseStochasticDecoder = None):
+        super(BaseStochasticVAE, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def reparameterize(self, mu: Tensor, log_covariance: Tensor) -> Tensor:
+        """
+        Reparameterization trick to sample from N(mu, sigma^2) using N(0,1).
+
+        Parameters:
+        ----------
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code.
+        log_covariance : Tensor (batch_size, latent_dim)
+            The log covariance of the latent code.
+
+        Returns:
+        -------
+        z : Tensor (batch_size, latent_dim)
+            The sampled latent code.
+        """
+        std = torch.exp(0.5 * log_covariance)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        """
+        Forward pass of the stochastic VAE model.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, ...)
+            The input tensor to be encoded and decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code obtained from the encoder.
+        log_covariance_latent : Tensor (batch_size, latent_dim)
+            The estimated log covariance of the latent code obtained from the encoder.
+        log_covariance_reconstructed : Tensor (batch_size, ...)
+            The estimated log covariance of the reconstructed tensor obtained from the decoder.
+        """
+        mu, log_covariance_latent = self.encoder(x)
+        if self.training:
+            z = self.reparameterize(mu, log_covariance_latent)
+            x_reconstructed, log_covariance_reconstructed = self.decoder(z)
+            x_reconstructed = self.reparameterize(
+                x_reconstructed, log_covariance_reconstructed
+            )
+        else:
+            z = mu
+            x_reconstructed, log_covariance_reconstructed = self.decoder(z)
+        return x_reconstructed, mu, log_covariance_latent, log_covariance_reconstructed
+
+
+#############################
+# MLP models
+#############################
+
+
 class Encoder_MLP(BaseEncoder):
     def __init__(
         self, input_dim, latent_dim: int, hidden_layers: tuple[int, ...] = (500, 500)
     ):
         super().__init__()
-        self.input_dim = np.prod(input_dim) if isinstance(input_dim, tuple) else input_dim
+        self.input_dim = input_dim
+        self.input_dim_ = np.prod(input_dim) if isinstance(input_dim, tuple) else input_dim
         self.latent_dim = latent_dim
 
         self.layers = [torch.nn.Flatten()]
         for i, hidden_dim in enumerate(hidden_layers):
             if i == 0:
-                self.layers.append(nn.Linear(self.input_dim, hidden_dim))
+                self.layers.append(nn.Linear(self.input_dim_, hidden_dim))
             else:
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
             self.layers.append(nn.ReLU())
@@ -168,7 +261,28 @@ class Decoder_MLP(BaseDecoder):
         return x_reco
 
 
-class SmallConvBackbone(nn.Module):
+class VAE_MLP(BaseVAE):
+    def __init__(
+        self,
+        input_dim,
+        latent_dim: int,
+        hidden_layers: tuple[int, ...] = (128, 500),
+    ):
+        encoder = Encoder_MLP(
+            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
+        )
+        decoder = Decoder_MLP(
+            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
+        )
+        super().__init__(encoder=encoder, decoder=decoder)
+
+
+##############################
+# Small convolutional models for MNIST and CIFAR10
+##############################
+
+
+class SmallConvBackbone(BaseEncoder):
     """
     Simple convolutional vae backbone model for MNIST and CIFAR10
     It expects to receive image of shape (B, C, 32, 32) where
@@ -275,223 +389,16 @@ class SmallConvDecoder(BaseDecoder):
         return x_hat
 
 
-class HyperPlanPredictor(nn.Module):
-    def __init__(
-        self,
-        latent_dim: int,
-        # base_cometric: CoMetric,
-        hidden_dims: list[int] = [32, 64, 32],
-    ):
-        super(HyperPlanPredictor, self).__init__()
-        self.latent_dim = latent_dim
-        # self.base_cometric = base_cometric
-
-        self.layers = nn.Sequential()
-        for i, dim in enumerate(hidden_dims):
-            if i == 0:
-                self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
-            else:
-                self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
-            self.layers.add_module(f"relu_{i}", nn.ReLU())
-        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], self.latent_dim))
-
-    def forward(self, x):
-        omega = self.layers(x)
-        # Compute |w(x)|_{base_cometric^{-1}(x)}
-        # if not self.train:
-        #     # We do that because otherwise the gradient
-        #     # Is messed up during learning.
-        #     # The normalization is not needed at training time
-        #     omega_norm = self.base_cometric.cometric(x, omega).sqrt()
-        #     # Normalize
-        #     omega = omega / (omega_norm[:, None] + 1e-8)
-        return omega
+class SmallConvVAE(BaseVAE):
+    def __init__(self, latent_dim: int, n_channels: int = 1):
+        encoder = SmallConvBackbone(latent_dim=latent_dim, n_channels=n_channels)
+        decoder = SmallConvDecoder(latent_dim=latent_dim, out_channels=n_channels)
+        super().__init__(encoder=encoder, decoder=decoder)
 
 
-class AccuracyPredictor(nn.Module):
-    """
-    Network to predict the accuracy of a model based on the latent code.
-
-    Parameters:
-    ----------
-    latent_dim : int
-        Dimension of the latent space.
-    hidden_dims : list[int]
-        List of hidden dimensions for the network. Default is [32, 128, 32].
-    """
-
-    def __init__(self, latent_dim: int, hidden_dims: list[int] = [32, 128, 32]):
-        super(AccuracyPredictor, self).__init__()
-        self.latent_dim = latent_dim
-        self.layers = nn.Sequential()
-        for i, dim in enumerate(hidden_dims):
-            if i == 0:
-                self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
-            else:
-                self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
-            self.layers.add_module(f"relu_{i}", nn.ReLU())
-        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], 1))
-        self.layers.add_module("sigmoid", nn.Sigmoid())
-
-    def forward(self, z):
-        return self.layers(z)
-
-
-class DummyAccuracyPredictor(nn.Module):
-    """
-    Dummy accuracy predictor that always returns 1.0.
-    This is used as a placeholder when no accuracy prediction is needed.
-    """
-
-    def __init__(self):
-        super(DummyAccuracyPredictor, self).__init__()
-
-    def forward(self, z):
-        return torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)
-
-
-class Omega(torch.nn.Module):
-    """
-    Network to wrap the direction and amplitude of the Randers 1-form.
-    The direction is normalized by the cometric so that the norm
-    is only a function of the amplitude.
-
-    Parameters:
-    ----------
-    direction : torch.nn.Module
-        A neural network that predicts the direction of the Randers 1-form.
-    amplitude : torch.nn.Module
-        A neural network that predicts the amplitude of the Randers 1-form.
-    cometric : CoMetric
-        The cometric used to normalize the direction.
-    """
-
-    def __init__(
-        self, direction: torch.nn.Module, amplitude: torch.nn.Module, cometric: CoMetric
-    ):
-        super().__init__()
-        self.direction = direction
-        self.amplitude = amplitude
-        self.cometric = cometric
-
-    def forward(self, X):
-        rho = self.amplitude(X).clip(0.0, 1.0)  # Just in case
-        omega = self.direction(X)
-        omega_norm = self.cometric.cometric(X, omega).sqrt()
-        omega = omega / (omega_norm[:, None] + 1e-8)
-        return rho * omega
-
-
-class ConvRegressor(nn.Module):
-    """
-    A simple convolutional regressor from the image space to R^d.
-    It expects to receive images of shape (B, C, H, W)
-    """
-
-    def __init__(self, in_channels: int = 1, out_feature: int = 1):
-        super(ConvRegressor, self).__init__()
-        self.out_feature = out_feature
-        self.resnet = resnet18()
-        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, self.out_feature)
-        self.resnet.conv1 = nn.Conv2d(
-            in_channels,
-            self.resnet.conv1.out_channels,
-            kernel_size=self.resnet.conv1.kernel_size,
-            stride=self.resnet.conv1.stride,
-            padding=self.resnet.conv1.padding,
-            bias=self.resnet.conv1.bias is not None,
-        )
-        self.resize = v2.Resize((224, 224))
-        self.model = nn.Sequential(
-            self.resize,
-            self.resnet,
-        )
-
-        # Cast the weights to double precision
-        for param in self.model.parameters():
-            param.data = param.data.double()
-
-    def forward(self, x: Tensor):
-        # if self.out_feature == 1:
-        #     return self.model(x).squeeze(-1)
-        # else:
-        return self.model(x)
-
-
-class LatentClassifier(nn.Module):
-    """
-    A simple classifier for the latent space.
-    It expects to receive latent code of shape (B, latent_dim).
-
-    Parameters:
-    ----------
-    latent_dim : int
-        Dimension of the latent space.
-    num_classes : int
-        Number of classes for classification.
-    hidden_dim : list[int]
-        List of hidden dimensions for the network. Default is [128, 64].
-    Returns:
-    -------
-    logits : Tensor (B, num_classes)
-        The logits for each class.
-    """
-
-    def __init__(
-        self,
-        latent_dim: int,
-        num_classes: int,
-        hidden_dim: list[int] = [128, 64],
-        dropout: float = None,
-    ):
-        super(LatentClassifier, self).__init__()
-        self.latent_dim = latent_dim
-        self.num_classes = num_classes
-        self.hidden_dim = hidden_dim
-        self.dropout = dropout
-
-        if dropout is not None:
-            assert dropout > 0 and dropout < 1, "Dropout must be between 0 and 1"
-
-        self.fc = nn.Sequential()
-        for i, dim in enumerate(hidden_dim):
-            if i == 0:
-                self.fc.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
-            else:
-                self.fc.add_module(f"linear_{i}", nn.Linear(hidden_dim[i - 1], dim))
-            if self.dropout is not None:
-                self.fc.add_module(f"dropout_{i}", nn.Dropout(p=self.dropout))
-
-            self.fc.add_module(f"relu_{i}", nn.ReLU())
-        self.fc.add_module(f"linear_out", nn.Linear(hidden_dim[-1], self.num_classes))
-
-    def forward(self, z: Tensor):
-        logits = self.fc(z)
-        return logits
-
-
-class LatentRegressor(LatentClassifier):
-    """
-    A simple regressor for the latent space.
-    It expects to receive latent code of shape (B, latent_dim).
-
-    Parameters:
-    ----------
-    latent_dim : int
-        Dimension of the latent space.
-    hidden_dim : list[int]
-        List of hidden dimensions for the regressor.
-
-    Returns:
-    -------
-    values : Tensor (B, 1)
-        The predicted value for the regression task.
-    """
-
-    def __init__(self, latent_dim: int, hidden_dim: list[int] = [128, 64]):
-        super().__init__(latent_dim=latent_dim, num_classes=1, hidden_dim=hidden_dim)
-
-
+########################
+# Conv VAE models for images of shape (256, 256)
+########################
 class ConvBlock(nn.Module):
     """Conv2d - InstanceNorm - PReLU"""
 
@@ -671,6 +578,10 @@ class VAE(BaseVAE):
         self.decoder = DecoderWrapper(self.decoder_, self.fc_decode)
 
 
+#############################
+# 3D Conv VAE models
+#############################
+
 
 class ResBlock3D(nn.Module):
     def __init__(self, channels: int, kernel_size: int = 3):
@@ -760,14 +671,14 @@ class Encoder3D(BaseEncoder):
 
         self.mu_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
 
-        self.logvar_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
+        self.log_std_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
         # self.mu_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
         #     nn.ReLU(inplace=True),
         #     nn.Linear(self.flat_dim // 2, latent_dim),
         # )
-        # self.logvar_branch = nn.Sequential(
+        # self.log_std_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
         #     nn.ReLU(inplace=True),
@@ -777,7 +688,7 @@ class Encoder3D(BaseEncoder):
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         h = self.features(x)
         mu = self.mu_branch(h)
-        logvar = self.logvar_branch(h)
+        logvar = self.log_std_branch(h)
         return mu, logvar
 
 
@@ -942,75 +853,228 @@ class VAE3D(BaseVAE):
         self.out_channels = out_channels
 
 
-class MLPEncoder(nn.Module):
+##############################
+# MLP models for the Rander metrics
+###############################
+
+
+class HyperPlanPredictor(nn.Module):
     def __init__(
-        self, latent_dim: int, img_shape: tuple[int, int, int], hidden_dims: list[int]
+        self,
+        latent_dim: int,
+        # base_cometric: CoMetric,
+        hidden_dims: list[int] = [32, 64, 32],
     ):
-        super().__init__()
+        super(HyperPlanPredictor, self).__init__()
         self.latent_dim = latent_dim
-        self.img_shape = img_shape
-        self.hidden_dims = hidden_dims
+        # self.base_cometric = base_cometric
 
-        layers = []
-        in_dim = int(torch.prod(torch.tensor(img_shape)))
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(in_dim, h_dim))
-            layers.append(nn.ReLU())
-            in_dim = h_dim
+        self.layers = nn.Sequential()
+        for i, dim in enumerate(hidden_dims):
+            if i == 0:
+                self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
+            else:
+                self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
+            self.layers.add_module(f"relu_{i}", nn.ReLU())
+        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], self.latent_dim))
 
-        self.flatten = nn.Flatten()
-        self.shared = nn.Sequential(*layers)
-        self.mu_branch = nn.Linear(in_dim, latent_dim)
-        self.logvar_branch = nn.Linear(in_dim, latent_dim)
-
-    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
-        x_flat = self.flatten(x)
-        shared_out = self.shared(x_flat)
-        mu = self.mu_branch(shared_out)
-        logvar = self.logvar_branch(shared_out)
-        return mu, logvar
-
-
-class MLPDecoder(nn.Module):
-    def __init__(
-        self, latent_dim: int, img_shape: tuple[int, int, int], hidden_dims: list[int]
-    ):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.img_shape = img_shape
-        self.hidden_dims = hidden_dims
-
-        layers = []
-        in_dim = latent_dim
-        for h_dim in hidden_dims:
-            layers.append(nn.Linear(in_dim, h_dim))
-            layers.append(nn.ReLU())
-            in_dim = h_dim
-
-        layers.append(nn.Linear(in_dim, int(torch.prod(torch.tensor(img_shape)))))
-        layers.append(nn.Sigmoid())  # Assuming input images are normalized to [0, 1]
-
-        self.decoder = nn.Sequential(*layers)
-
-    def forward(self, z: Tensor) -> Tensor:
-        x_flat = self.decoder(z)
-        x_recon = x_flat.view(-1, *self.img_shape)
-        return x_recon
+    def forward(self, x):
+        omega = self.layers(x)
+        # Compute |w(x)|_{base_cometric^{-1}(x)}
+        # if not self.train:
+        #     # We do that because otherwise the gradient
+        #     # Is messed up during learning.
+        #     # The normalization is not needed at training time
+        #     omega_norm = self.base_cometric.cometric(x, omega).sqrt()
+        #     # Normalize
+        #     omega = omega / (omega_norm[:, None] + 1e-8)
+        return omega
 
 
-class MLPVAE(BaseVAE):
+class AccuracyPredictor(nn.Module):
     """
-    A simple MLP VAE for testing purposes.
+    Network to predict the accuracy of a model based on the latent code.
+
+    Parameters:
+    ----------
+    latent_dim : int
+        Dimension of the latent space.
+    hidden_dims : list[int]
+        List of hidden dimensions for the network. Default is [32, 128, 32].
+    """
+
+    def __init__(self, latent_dim: int, hidden_dims: list[int] = [32, 128, 32]):
+        super(AccuracyPredictor, self).__init__()
+        self.latent_dim = latent_dim
+        self.layers = nn.Sequential()
+        for i, dim in enumerate(hidden_dims):
+            if i == 0:
+                self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
+            else:
+                self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
+            self.layers.add_module(f"relu_{i}", nn.ReLU())
+        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], 1))
+        self.layers.add_module("sigmoid", nn.Sigmoid())
+
+    def forward(self, z):
+        return self.layers(z)
+
+
+class DummyAccuracyPredictor(nn.Module):
+    """
+    Dummy accuracy predictor that always returns 1.0.
+    This is used as a placeholder when no accuracy prediction is needed.
+    """
+
+    def __init__(self):
+        super(DummyAccuracyPredictor, self).__init__()
+
+    def forward(self, z):
+        return torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)
+
+
+class Omega(torch.nn.Module):
+    """
+    Network to wrap the direction and amplitude of the Randers 1-form.
+    The direction is normalized by the cometric so that the norm
+    is only a function of the amplitude.
+
+    Parameters:
+    ----------
+    direction : torch.nn.Module
+        A neural network that predicts the direction of the Randers 1-form.
+    amplitude : torch.nn.Module
+        A neural network that predicts the amplitude of the Randers 1-form.
+    cometric : CoMetric
+        The cometric used to normalize the direction.
+    """
+
+    def __init__(
+        self, direction: torch.nn.Module, amplitude: torch.nn.Module, cometric: CoMetric
+    ):
+        super().__init__()
+        self.direction = direction
+        self.amplitude = amplitude
+        self.cometric = cometric
+
+    def forward(self, X):
+        rho = self.amplitude(X).clip(0.0, 1.0)  # Just in case
+        omega = self.direction(X)
+        omega_norm = self.cometric.cometric(X, omega).sqrt()
+        omega = omega / (omega_norm[:, None] + 1e-8)
+        return rho * omega
+
+
+##############################
+# Other models
+################################
+
+
+class ConvRegressor(nn.Module):
+    """
+    A simple convolutional regressor from the image space to R^d.
+    It expects to receive images of shape (B, C, H, W)
+    """
+
+    def __init__(self, in_channels: int = 1, out_feature: int = 1):
+        super(ConvRegressor, self).__init__()
+        self.out_feature = out_feature
+        self.resnet = resnet18()
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, self.out_feature)
+        self.resnet.conv1 = nn.Conv2d(
+            in_channels,
+            self.resnet.conv1.out_channels,
+            kernel_size=self.resnet.conv1.kernel_size,
+            stride=self.resnet.conv1.stride,
+            padding=self.resnet.conv1.padding,
+            bias=self.resnet.conv1.bias is not None,
+        )
+        self.resize = v2.Resize((224, 224))
+        self.model = nn.Sequential(
+            self.resize,
+            self.resnet,
+        )
+
+        # Cast the weights to double precision
+        for param in self.model.parameters():
+            param.data = param.data.double()
+
+    def forward(self, x: Tensor):
+        # if self.out_feature == 1:
+        #     return self.model(x).squeeze(-1)
+        # else:
+        return self.model(x)
+
+
+class LatentClassifier(nn.Module):
+    """
+    A simple classifier for the latent space.
+    It expects to receive latent code of shape (B, latent_dim).
+
+    Parameters:
+    ----------
+    latent_dim : int
+        Dimension of the latent space.
+    num_classes : int
+        Number of classes for classification.
+    hidden_dim : list[int]
+        List of hidden dimensions for the network. Default is [128, 64].
+    Returns:
+    -------
+    logits : Tensor (B, num_classes)
+        The logits for each class.
     """
 
     def __init__(
         self,
         latent_dim: int,
-        img_shape: tuple[int, int, int],
-        hidden_dims: list[int] = [128, 64],
+        num_classes: int,
+        hidden_dim: list[int] = [128, 64],
+        dropout: float = None,
     ):
-        encoder = MLPEncoder(latent_dim, img_shape, hidden_dims)
-        decoder = MLPDecoder(latent_dim, img_shape, hidden_dims[::-1])
-        super().__init__(encoder, decoder)
+        super(LatentClassifier, self).__init__()
         self.latent_dim = latent_dim
-        self.img_shape = img_shape
+        self.num_classes = num_classes
+        self.hidden_dim = hidden_dim
+        self.dropout = dropout
+
+        if dropout is not None:
+            assert dropout > 0 and dropout < 1, "Dropout must be between 0 and 1"
+
+        self.fc = nn.Sequential()
+        for i, dim in enumerate(hidden_dim):
+            if i == 0:
+                self.fc.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
+            else:
+                self.fc.add_module(f"linear_{i}", nn.Linear(hidden_dim[i - 1], dim))
+            if self.dropout is not None:
+                self.fc.add_module(f"dropout_{i}", nn.Dropout(p=self.dropout))
+
+            self.fc.add_module(f"relu_{i}", nn.ReLU())
+        self.fc.add_module(f"linear_out", nn.Linear(hidden_dim[-1], self.num_classes))
+
+    def forward(self, z: Tensor):
+        logits = self.fc(z)
+        return logits
+
+
+class LatentRegressor(LatentClassifier):
+    """
+    A simple regressor for the latent space.
+    It expects to receive latent code of shape (B, latent_dim).
+
+    Parameters:
+    ----------
+    latent_dim : int
+        Dimension of the latent space.
+    hidden_dim : list[int]
+        List of hidden dimensions for the regressor.
+
+    Returns:
+    -------
+    values : Tensor (B, 1)
+        The predicted value for the regression task.
+    """
+
+    def __init__(self, latent_dim: int, hidden_dim: list[int] = [128, 64]):
+        super().__init__(latent_dim=latent_dim, num_classes=1, hidden_dim=hidden_dim)
