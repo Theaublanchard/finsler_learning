@@ -26,11 +26,11 @@ class BaseEncoder(nn.Module):
     def __init__(self):
         super(BaseEncoder, self).__init__()
         self.mu_branch = ...
-        self.log_std_branch = ...
+        self.log_var_branch = ...
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         """
-        Encodes a tensor x into the latent_code and the estimated log_covariance.
+        Encodes a tensor x into the latent_code and the estimated log_variance.
 
         Parameters:
         ----------
@@ -41,13 +41,32 @@ class BaseEncoder(nn.Module):
         -------
         z : Tensor (batch_size, latent_dim)
             The latent code obtained from the encoder.
-        log_covariance : Tensor (batch_size, latent_dim)
+        log_variance : Tensor (batch_size, latent_dim)
         """
 
-
-class BaseDecoder(nn.Module):
+class BaseStochasticDecoder(nn.Module):
     def __init__(self):
-        super(BaseDecoder, self).__init__()
+        super(BaseStochasticDecoder, self).__init__()
+        self.mu_branch = ...
+        self.log_var_branch = ...
+
+    def complete_forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+        """
+        Decodes the latent code z into the reconstructed tensor and the estimated log_variance.
+
+        Parameters:
+        ----------
+        z : Tensor (batch_size, latent_dim)
+            The latent code to be decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        log_variance : Tensor (batch_size, ...)
+            The estimated log variance of the reconstructed tensor.
+        """
+        ...
 
     def forward(self, z: Tensor) -> Tensor:
         """
@@ -63,83 +82,18 @@ class BaseDecoder(nn.Module):
         x_reconstructed : Tensor (batch_size, ...)
             The reconstructed tensor obtained from the decoder.
         """
+        ...
 
 
-class BaseVAE(nn.Module):
-    def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
-        super(BaseVAE, self).__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-
-    def reparameterize(self, mu: Tensor, log_covariance: Tensor) -> Tensor:
-        """
-        Reparameterization trick to sample from N(mu, sigma^2) using N(0,1).
-
-        Parameters:
-        ----------
-        mu : Tensor (batch_size, latent_dim)
-            The mean of the latent code.
-        log_covariance : Tensor (batch_size, latent_dim)
-            The log covariance of the latent code.
-
-        Returns:
-        -------
-        z : Tensor (batch_size, latent_dim)
-            The sampled latent code.
-        """
-        std = torch.exp(0.5 * log_covariance)
-        eps = torch.randn_like(std)
-        return mu + eps * std
-
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-        """
-        Forward pass of the VAE model.
-
-        Parameters:
-        ----------
-        x : Tensor (batch_size, ...)
-            The input tensor to be encoded and decoded.
-
-        Returns:
-        -------
-        x_reconstructed : Tensor (batch_size, ...)
-            The reconstructed tensor obtained from the decoder.
-        z_final : Tensor (batch_size, latent_dim)
-            The final latent code after encoding.
-        log_covariance : Tensor (batch_size, latent_dim)
-            The estimated log covariance of the latent code.
-        """
-        mu, log_covariance = self.encoder(x)
-        if self.training:
-            z = self.reparameterize(mu, log_covariance)
-        else:
-            z = mu
-        x_reconstructed = self.decoder(z)
-        return x_reconstructed, mu, log_covariance
-
-
-class BaseStochasticDecoder(nn.Module):
+class BaseDecoder(BaseStochasticDecoder):
     def __init__(self):
-        super(BaseStochasticDecoder, self).__init__()
-        self.mu_branch = ...
-        self.log_std_branch = ...
+        super(BaseDecoder, self).__init__()
+        self.log_var_branch = None
 
-    def forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Forward pass of the stochastic decoder.
-
-        Parameters:
-        ----------
-        z : Tensor (batch_size, latent_dim)
-            The latent code to be decoded.
-
-        Returns:
-        -------
-        x_reconstructed : Tensor (batch_size, ...)
-            The reconstructed tensor obtained from the decoder.
-        log_covariance : Tensor (batch_size, ...)
-            The estimated log covariance of the reconstructed tensor.
-        """
+    def complete_forward(self, z):
+        x_hat = self.forward(z)
+        log_variance = torch.zeros_like(x_hat)
+        return x_hat, log_variance
 
 
 class BaseStochasticVAE(nn.Module):
@@ -148,7 +102,7 @@ class BaseStochasticVAE(nn.Module):
         self.encoder = encoder
         self.decoder = decoder
 
-    def reparameterize(self, mu: Tensor, log_covariance: Tensor) -> Tensor:
+    def reparameterize(self, mu: Tensor, log_variance: Tensor) -> Tensor:
         """
         Reparameterization trick to sample from N(mu, sigma^2) using N(0,1).
 
@@ -156,21 +110,21 @@ class BaseStochasticVAE(nn.Module):
         ----------
         mu : Tensor (batch_size, latent_dim)
             The mean of the latent code.
-        log_covariance : Tensor (batch_size, latent_dim)
-            The log covariance of the latent code.
+        log_variance : Tensor (batch_size, latent_dim)
+            The log variance of the latent code.
 
         Returns:
         -------
         z : Tensor (batch_size, latent_dim)
             The sampled latent code.
         """
-        std = torch.exp(0.5 * log_covariance)
+        std = torch.exp(0.5 * log_variance)
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def complete_forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         """
-        Forward pass of the stochastic VAE model.
+        Forward pass of the stochastic VAE model with all of the infos.
 
         Parameters:
         ----------
@@ -183,22 +137,107 @@ class BaseStochasticVAE(nn.Module):
             The reconstructed tensor obtained from the decoder.
         mu : Tensor (batch_size, latent_dim)
             The mean of the latent code obtained from the encoder.
-        log_covariance_latent : Tensor (batch_size, latent_dim)
-            The estimated log covariance of the latent code obtained from the encoder.
-        log_covariance_reconstructed : Tensor (batch_size, ...)
-            The estimated log covariance of the reconstructed tensor obtained from the decoder.
+        log_variance_latent : Tensor (batch_size, latent_dim)
+            The estimated log variance of the latent code obtained from the encoder.
+        log_variance_reconstructed : Tensor (batch_size, ...)
+            The estimated log variance of the reconstructed tensor obtained from the decoder.
         """
-        mu, log_covariance_latent = self.encoder(x)
+        mu, log_variance_latent = self.encoder(x)
         if self.training:
-            z = self.reparameterize(mu, log_covariance_latent)
-            x_reconstructed, log_covariance_reconstructed = self.decoder(z)
+            z = self.reparameterize(mu, log_variance_latent)
+            x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
             x_reconstructed = self.reparameterize(
-                x_reconstructed, log_covariance_reconstructed
+                x_reconstructed, log_variance_reconstructed
             )
         else:
             z = mu
-            x_reconstructed, log_covariance_reconstructed = self.decoder(z)
-        return x_reconstructed, mu, log_covariance_latent, log_covariance_reconstructed
+            x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
+        return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
+
+    def forward(self,x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Forward pass of the stochastic VAE model that matches regular VAE forward signature.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, ...)
+            The input tensor to be encoded and decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code obtained from the encoder.
+        log_variance_latent : Tensor (batch_size, latent_dim)
+            The estimated log variance of the latent code obtained from the encoder.
+        """
+        x_reconstructed, mu, log_variance_latent, _ = self.complete_forward(x)
+        return x_reconstructed, mu, log_variance_latent
+
+class BaseVAE(BaseStochasticVAE):
+    def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
+        super(BaseVAE, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def complete_forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Forward pass of the stochastic VAE model with all of the infos.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, ...)
+            The input tensor to be encoded and decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code obtained from the encoder.
+        log_variance_latent : Tensor (batch_size, latent_dim)
+            The estimated log variance of the latent code obtained from the encoder.
+        log_variance_reconstructed : Tensor (batch_size, ...)
+            Used for compatibility with BaseStochasticVAE. Will be a zero tensor of the same shape as x_reconstructed.
+            This follows from having as prior p(x|z) = N(x|decoder(z), I) in the VAE model.
+        """
+        mu, log_variance_latent = self.encoder(x)
+        if self.training:
+            z = self.reparameterize(mu, log_variance_latent)
+        else:
+            z = mu
+            x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
+        return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Forward pass of the VAE model.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, ...)
+            The input tensor to be encoded and decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code obtained from the encoder.
+        log_variance : Tensor (batch_size, latent_dim)
+            The estimated log variance of the latent code.
+        """
+        mu, log_variance = self.encoder(x)
+        if self.training:
+            z = self.reparameterize(mu, log_variance)
+        else:
+            z = mu
+        x_reconstructed = self.decoder(z)
+        return x_reconstructed, mu, log_variance
+
+
+
 
 
 #############################
@@ -228,13 +267,13 @@ class Encoder_MLP(BaseEncoder):
         self.std = nn.Linear(hidden_layers[-1], self.latent_dim)
 
         self.mu_branch = nn.Sequential(self.layers, self.mu)
-        self.log_covariance = nn.Sequential(self.layers, self.std)
+        self.log_variance = nn.Sequential(self.layers, self.std)
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         z = self.layers(x)
         mu = self.mu(z)
-        log_covariance = self.std(z)
-        return mu, log_covariance
+        log_variance = self.std(z)
+        return mu, log_variance
 
 
 class Decoder_MLP(BaseDecoder):
@@ -277,6 +316,49 @@ class VAE_MLP(BaseVAE):
         super().__init__(encoder=encoder, decoder=decoder)
 
 
+class StochasticDecoder_MLP(BaseStochasticDecoder):
+    def __init__(
+        self, input_dim, latent_dim: int, hidden_layers: tuple[int, ...] = (500, 500)
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.input_dim_flat = np.prod(input_dim) if isinstance(input_dim, tuple) else input_dim
+
+        self.layers = []
+        for i, hidden_dim in enumerate(hidden_layers):
+            if i == 0:
+                self.layers.append(nn.Linear(latent_dim, hidden_dim))
+            else:
+                self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
+            self.layers.append(nn.ReLU())
+        self.mu = nn.Linear(hidden_layers[-1], self.input_dim_flat)
+        self.std = nn.Linear(hidden_layers[-1], self.input_dim_flat)
+
+        self.mu_branch = nn.Sequential(*self.layers, self.mu)
+        self.log_variance = nn.Sequential(*self.layers, self.std)
+
+    def forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+        x_reco_mu = self.mu_branch(z)
+        x_reco_log_variance = self.log_variance(z)
+        return x_reco_mu, x_reco_log_variance
+
+
+class StochasticVAE_MLP(BaseStochasticVAE):
+    def __init__(
+        self,
+        input_dim,
+        latent_dim: int,
+        hidden_layers: tuple[int, ...] = (128, 500),
+    ):
+        encoder = Encoder_MLP(
+            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
+        )
+        decoder = StochasticDecoder_MLP(
+            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
+        )
+        super().__init__(encoder=encoder, decoder=decoder)
+
+
 ##############################
 # Small convolutional models for MNIST and CIFAR10
 ##############################
@@ -300,8 +382,8 @@ class SmallConvBackbone(BaseEncoder):
     -------
     mu_ : Tensor (B, latent_dim)
         The mean of the latent code
-    log_covariance_ : Tensor (B, latent_dim)
-        The log covariance of the latent code
+    log_variance_ : Tensor (B, latent_dim)
+        The log variance of the latent code
     """
 
     def __init__(self, latent_dim: int, n_channels=1):
@@ -326,18 +408,18 @@ class SmallConvBackbone(BaseEncoder):
             nn.Softplus(),
         )
         self.mu = nn.Sequential(nn.Flatten(), nn.Linear(2048, self.latent_dim))
-        self.log_covariance = nn.Sequential(nn.Flatten(), nn.Linear(2048, self.latent_dim))
+        self.log_variance = nn.Sequential(nn.Flatten(), nn.Linear(2048, self.latent_dim))
 
         self.mu_branch = nn.Sequential(self.l1, self.l2, self.l3, self.mu)
-        self.log_std_branch = nn.Sequential(self.l1, self.l2, self.l3, self.log_covariance)
+        self.log_std_branch = nn.Sequential(self.l1, self.l2, self.l3, self.log_variance)
 
     def forward(self, x: Tensor):
         z = self.l1(x)
         z = self.l2(z)
         z = self.l3(z)
         mu_ = self.mu(z)
-        log_covariance_ = self.log_covariance(z)
-        return mu_, log_covariance_
+        log_variance_ = self.log_variance(z)
+        return mu_, log_variance_
 
 
 class SmallConvDecoder(BaseDecoder):
@@ -521,7 +603,6 @@ class ConvDecoder(nn.Module):
         x = self.sigmoid(x)
         return x
 
-
 class VAE(BaseVAE):
     def __init__(
         self, latent_dim: int, dropout: float = 0.0, in_channels: int = 1, affine: bool = False
@@ -549,7 +630,7 @@ class VAE(BaseVAE):
                 mu = self.mu(z)
                 return mu
 
-            def log_std_branch(self, x):
+            def log_var_branch(self, x):
                 z = self.encoder(x)
                 z = torch.flatten(z, start_dim=1)
                 logvar = self.logvar(z)
@@ -671,14 +752,14 @@ class Encoder3D(BaseEncoder):
 
         self.mu_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
 
-        self.log_std_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
+        self.log_var_branch = nn.Sequential(nn.Flatten(), nn.Linear(self.flat_dim, latent_dim))
         # self.mu_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
         #     nn.ReLU(inplace=True),
         #     nn.Linear(self.flat_dim // 2, latent_dim),
         # )
-        # self.log_std_branch = nn.Sequential(
+        # self.log_var_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
         #     nn.ReLU(inplace=True),
@@ -688,7 +769,7 @@ class Encoder3D(BaseEncoder):
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         h = self.features(x)
         mu = self.mu_branch(h)
-        logvar = self.log_std_branch(h)
+        logvar = self.log_var_branch(h)
         return mu, logvar
 
 
