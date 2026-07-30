@@ -16,7 +16,7 @@ from geodesic_toolbox import (
     LANDCometric,
 )
 
-from finsler_learning import BaseVAE, VAE, SheppLoganDataset
+from finsler_learning import BaseVAE, VAE, SheppLoganDataset, WarpedDecoder
 
 #################################################################
 # Define constants
@@ -30,7 +30,8 @@ LOGGER = logging.getLogger()
 
 VALID_COMETRIC_TYPES = [
     # "vae", "pullback", "euclidean",
-    "land"
+    "warped_pullback",
+    # "land"
 ]
 
 
@@ -242,7 +243,12 @@ def get_cometric_pullback(
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
     centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
-    pullback_cometric = PullBackCometric(diffeo=model.decoder).to(device)
+    pullback_cometric = PullBackCometric(
+        diffeo=model.decoder,
+        reg_coef=0.0,  # We want exact pullback cometric, no regularization
+        method="loop_jvp",  # We want exact pullback cometric, no finite difference
+        chunk_size=1,
+    ).to(device)
     centroids_cometric = []
     pbar = tqdm(
         range(0, len(centroids), b_size_pullback),
@@ -287,6 +293,41 @@ def get_cometric_land(
     return cometric
 
 
+def get_cometric_warped_pullback(
+    batch_size: int,
+    latent_dim: int,
+    save_folder: Path,
+    K: int,
+    device: torch.device = DEVICE,
+    beta: float = 1.0,
+) -> PullBackCometric:
+    # Don't bother with all the params as it's going to load generated data anyway
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    shepplogan_train_loader, _ = get_shepplogan_dataloaders(
+        dataset_config=dl_config, export_path=save_folder
+    )
+    model = get_models(latent_dim=latent_dim)
+    try_load_pretrained_models(save_folder, model)
+    centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
+
+    warped_decoder = WarpedDecoder(
+        decoder=model.decoder,
+        centroids=centroids,
+        beta=beta,
+        K=K,
+    ).to(device)
+
+    pullback_cometric = PullBackCometric(
+        diffeo=warped_decoder,
+        reg_coef=1e-3,
+        method="finite_difference",
+        chunk_size=1,
+    ).to(device)
+    return pullback_cometric
+
+
 @torch.no_grad()
 def get_cometric(
     latent_dim: int,
@@ -322,6 +363,14 @@ def get_cometric(
         cometric = IdentityCoMetric()
     elif cometric_type == "land":
         cometric = get_cometric_land(
+            batch_size=batch_size,
+            latent_dim=latent_dim,
+            save_folder=export_path,
+            K=k,
+            device=device,
+        )
+    elif cometric_type == "warped_pullback":
+        cometric = get_cometric_warped_pullback(
             batch_size=batch_size,
             latent_dim=latent_dim,
             save_folder=export_path,

@@ -9,6 +9,7 @@ from .base_random_exp_map import *
 from .base_regressor_trainer import *
 from .base_vae_trainer import *
 from .base_wasserstein_learning import *
+from .base_warped_pullback import *
 
 from .models import *
 from .dataset import *
