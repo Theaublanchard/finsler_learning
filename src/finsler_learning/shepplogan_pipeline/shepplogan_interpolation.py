@@ -135,180 +135,48 @@ def evaluate_monotonicity(
     # if eval_quality:
     #     evaluate_framework(config_lgds)
 
-    # # Euclidean evaluation
-    # LOGGER.info("- Evaluating Euclidean metric...")
-    # config_euclidean = GeodesicEvalRiemannConfig(
-    #     export_path=export_path / "geodesic_evaluation_euclidean",
-    #     cometric=IdentityCoMetric(),
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_euclidean)
-    # if eval_quality:
-    #     evaluate_framework(config_euclidean)
+    for cometric_type in VALID_COMETRIC_TYPES:
+        LOGGER.info(f"- Evaluating {cometric_type} metric...")
+        cometric = get_cometric(
+            latent_dim=latent_dim,
+            export_path=export_path,
+            k=k,
+            batch_size=batch_size,
+            cometric_type=cometric_type,
+            device=device,
+        ).to(dtype)
+        config_riemann = GeodesicEvalRiemannConfig(
+            export_path=export_path / f"geodesic_evaluation_{cometric_type}",
+            cometric=cometric,
+            **common_params,
+        )
+        if eval_monotonicity:
+            geodesic_evaluation(config_riemann)
+        if eval_quality:
+            evaluate_framework(config_riemann)
 
-    # del config_euclidean
+        del config_riemann
 
-    # # Euclidean Randers evaluation
-    # LOGGER.info("- Evaluating Euclidean Randers metric...")
-    # randers = get_randers_metric_trained(
-    #     latent_dim=latent_dim,
-    #     cometric=IdentityCoMetric(),
-    #     export_path=export_path,
-    #     beta=omega_strength,
-    #     use_dummy_accuracy=use_dummy_accuracy,
-    #     device=device,
-    #     cometric_type="euclidean",
-    # ).to(dtype)
-    # config_euclidean_randers = GeodesicEvalFinslerConfig(
-    #     export_path=export_path / "geodesic_evaluation_euclidean_randers",
-    #     cometric=IdentityCoMetric(),
-    #     randers_metric=randers,
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_euclidean_randers)
-    # if eval_quality:
-    #     evaluate_framework(config_euclidean_randers)
+        LOGGER.info(f"- Evaluating {cometric_type} Randers metric...")
+        randers = get_randers_metric_trained(
+            latent_dim=latent_dim,
+            cometric=cometric,
+            export_path=export_path,
+            beta=omega_strength,
+            use_dummy_accuracy=use_dummy_accuracy,
+            device=device,
+            cometric_type=cometric_type,
+        ).to(dtype)
+        config_finsler = GeodesicEvalFinslerConfig(
+            export_path=export_path / f"geodesic_evaluation_{cometric_type}_randers",
+            cometric=cometric,
+            randers_metric=randers,
+            **common_params,
+        )
+        if eval_monotonicity:
+            geodesic_evaluation(config_finsler)
+        if eval_quality:
+            evaluate_framework(config_finsler)
 
-    # del config_euclidean_randers
-    # del randers
-
-    # # Riemannian VAE evaluation
-    # LOGGER.info("- Evaluating Riemannian metric...")
-    # cometric = get_cometric(
-    #     latent_dim=latent_dim,
-    #     export_path=export_path,
-    #     k=k,
-    #     batch_size=batch_size,
-    #     cometric_type="vae",
-    #     device=device,
-    # ).to(dtype)
-    # config_riemann_vae = GeodesicEvalRiemannConfig(
-    #     export_path=export_path / "geodesic_evaluation_riemann_vae",
-    #     cometric=cometric,
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_riemann_vae)
-    # if eval_quality:
-    #     evaluate_framework(config_riemann_vae)
-
-    # del config_riemann_vae
-
-    # # Finsler VAE evaluation
-    # LOGGER.info("- Evaluating Finsler VAE metric...")
-    # randers = get_randers_metric_trained(
-    #     latent_dim=latent_dim,
-    #     cometric=cometric,
-    #     export_path=export_path,
-    #     beta=omega_strength,
-    #     use_dummy_accuracy=use_dummy_accuracy,
-    #     device=device,
-    #     cometric_type="vae",
-    # ).to(dtype)
-    # config_finsler_vae = GeodesicEvalFinslerConfig(
-    #     export_path=export_path / "geodesic_evaluation_finsler_vae",
-    #     cometric=cometric,
-    #     randers_metric=randers,
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_finsler_vae)
-    # if eval_quality:
-    #     evaluate_framework(config_finsler_vae)
-
-    # del config_finsler_vae
-    # del cometric
-    # del randers
-    # torch.cuda.empty_cache()
-
-    # # Riemannian Pullback evaluation
-    # LOGGER.info("- Evaluating Riemannian Pullback metric...")
-    # cometric = get_cometric(
-    #     latent_dim=latent_dim,
-    #     export_path=export_path,
-    #     k=k,
-    #     batch_size=batch_size,
-    #     cometric_type="pullback",
-    #     device=device,
-    # ).to(dtype)
-    # config_riemann_pullback = GeodesicEvalRiemannConfig(
-    #     export_path=export_path / "geodesic_evaluation_riemann_pullback",
-    #     cometric=cometric,
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_riemann_pullback)
-    # if eval_quality:
-    #     evaluate_framework(config_riemann_pullback)
-
-    # # Finsler Pullback evaluation
-    # logger = logging.getLogger("shepplogan_pipeline")
-    # logger.info("- Evaluating Finsler Pullback VAE metric...")
-    # randers = get_randers_metric_trained(
-    #     latent_dim=latent_dim,
-    #     cometric=cometric,
-    #     export_path=export_path,
-    #     beta=omega_strength,
-    #     use_dummy_accuracy=use_dummy_accuracy,
-    #     device=device,
-    #     cometric_type="pullback",
-    # ).to(dtype)
-    # config_finsler_pullback = GeodesicEvalFinslerConfig(
-    #     export_path=export_path / "geodesic_evaluation_finsler_pullback",
-    #     cometric=cometric,
-    #     randers_metric=randers,
-    #     **common_params,
-    # )
-    # if eval_monotonicity:
-    #     geodesic_evaluation(config_finsler_pullback)
-    # if eval_quality:
-    #     evaluate_framework(config_finsler_pullback)
-
-    # del config_finsler_pullback
-    # del config_riemann_pullback
-    # del cometric
-    # del randers
-
-    # LAND evaluation
-    LOGGER.info("- Evaluating LAND metric...")
-    cometric = get_cometric(
-        latent_dim=latent_dim,
-        export_path=export_path,
-        k=k,
-        batch_size=batch_size,
-        cometric_type="land",
-        device=device,
-    ).to(dtype)
-    config_land = GeodesicEvalRiemannConfig(
-        export_path=export_path / "geodesic_evaluation_land",
-        cometric=cometric,
-        **common_params,
-    )
-    if eval_monotonicity:
-        geodesic_evaluation(config_land)
-    if eval_quality:
-        evaluate_framework(config_land)
-
-    # LAND Randers evaluation
-    LOGGER.info("- Evaluating LAND Randers metric...")
-    randers = get_randers_metric_trained(
-        latent_dim=latent_dim,
-        cometric=cometric,
-        export_path=export_path,
-        beta=omega_strength,
-        use_dummy_accuracy=use_dummy_accuracy,
-        device=device,
-        cometric_type="land",
-    ).to(dtype)
-    config_land_randers = GeodesicEvalFinslerConfig(
-        export_path=export_path / "geodesic_evaluation_land_randers",
-        cometric=cometric,
-        randers_metric=randers,
-        **common_params,
-    )
-    if eval_monotonicity:
-        geodesic_evaluation(config_land_randers)
-    if eval_quality:
-        evaluate_framework(config_land_randers)
+        del config_finsler
+        del randers
