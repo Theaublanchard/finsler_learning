@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 from .losses import NaNLossException, Losse
-from .models import BaseVAE
+from .models import BaseStochasticVAE
 
 
 @dataclass
@@ -20,7 +20,7 @@ class VAEConfig:
     n_epochs: int
     dataloader: DataLoader
     dataloader_test: DataLoader
-    model: BaseVAE
+    model: BaseStochasticVAE
     optimizer: optim.Optimizer
     criterion: callable
     export_path: str
@@ -62,7 +62,7 @@ def _get_scheduled_beta(
 def train_loop_vae(
     epoch: int,
     dataloader: DataLoader,
-    model: BaseVAE,
+    model: BaseStochasticVAE,
     optimizer: optim.Optimizer,
     criterion: Losse,
     device: torch.device,
@@ -90,10 +90,10 @@ def train_loop_vae(
         x = x.to(device)
         y = y.to(device)
 
-        x_hat, mu, log_covariance = model(x)
+        x_hat, mu, log_variance_latent, log_variance_reconstructed = model.complete_forward(x)
 
         optimizer.zero_grad()
-        loss = criterion(x_hat, x, mu, log_covariance)
+        loss = criterion(x_hat, x, mu, log_variance_latent, log_variance_reconstructed)
 
         if torch.isnan(loss).any():
             raise NaNLossException(f"NaN loss encountered at epoch {epoch}, batch {i}. ")
@@ -132,7 +132,7 @@ def train_loop_vae(
 def test_loop_vae(
     epoch: int,
     dataloader_test: DataLoader,
-    model: BaseVAE,
+    model: BaseStochasticVAE,
     criterion: Losse,
     device: torch.device,
     epoch_progress_bar: bool = False,
@@ -157,8 +157,8 @@ def test_loop_vae(
         x = x.to(device)
         y = y.to(device)
 
-        x_hat, mu, log_covariance = model(x)
-        loss = criterion(x_hat, x, mu, log_covariance)
+        x_hat, mu, log_variance_latent, log_variance_reconstructed = model.complete_forward(x)
+        loss = criterion(x_hat, x, mu, log_variance_latent, log_variance_reconstructed)
 
         if torch.isnan(loss).any():
             raise NaNLossException(f"NaN loss encountered at epoch {epoch}, batch {i}. ")
@@ -233,7 +233,7 @@ def export_loss_components(
 
 def export_results_vae(
     export_path: Path,
-    model: BaseVAE,
+    model: BaseStochasticVAE,
     loss_list_train: list[float],
     loss_list_test: list[float],
     component_history_train: dict[str, list[float]] | None = None,
@@ -285,7 +285,7 @@ def export_results_vae(
 
 
 def visualize_reconstruction(
-    model: BaseVAE,
+    model: BaseStochasticVAE,
     dataloader: DataLoader,
     device: torch.device,
     export_path: Path,

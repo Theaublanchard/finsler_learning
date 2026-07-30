@@ -280,15 +280,15 @@ class KL_divergence(Losse):
         self.free_bits = free_bits
 
     def forward(
-        self, mu: Tensor, log_var: Tensor, return_components: bool = False
+        self, mu: Tensor, log_var_latent: Tensor, return_components: bool = False
     ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
         """
         Parameters
         ----------
         mu : Tensor (B, D)
             The mean of the latent distribution.
-        log_var : Tensor (B, D)
-            The log standard deviation of the latent distribution.
+        log_var_latent : Tensor (B, D)
+            The log variance of the latent distribution.
         return_components : bool
             If True, returns a dictionary containing the computed KL divergence and its components. Default is False
         Returns
@@ -297,13 +297,16 @@ class KL_divergence(Losse):
             The KL divergence between the latent distribution and the standard normal distribution.
         if return_components is True, also returns a dictionary containing the computed KL divergence and its components.
         """
-        var_sqrd = torch.exp(log_var)
-        kl_per_dim_raw = 0.5 * (var_sqrd + mu**2 - 1 - log_var)
-        kl_per_dim = kl_per_dim_raw
+        normal_0 = torch.distributions.Normal(loc=mu, scale=torch.exp(0.5 * log_var_latent))
+        normal_1 = torch.distributions.Normal(loc=torch.zeros_like(mu), scale=torch.ones_like(log_var_latent))
+
+        kl_per_dim_raw = torch.distributions.kl_divergence(normal_0, normal_1)
+        kl_raw = kl_per_dim_raw.sum(-1).mean() 
+        kl_per_dim = kl_per_dim_raw.sum(-1)
         if self.free_bits > 0:
             kl_per_dim = torch.clamp(kl_per_dim, min=self.free_bits)
-        kl_raw = kl_per_dim_raw.sum(-1).mean()
-        kl = kl_per_dim.sum(-1).mean()
+        kl = kl_per_dim.mean()
+
         self.curr_it_component = {
             "kl": kl,
             "kl_raw": kl_raw,
@@ -313,7 +316,48 @@ class KL_divergence(Losse):
             return kl
         return kl, self.curr_it_component
 
+class LogPrior(Losse):
+    """
+    Compute the log likelyhood of a multivariate normal distribution.
+    In the usual settings, this amounts to the reconstruction loss of a VAE model.
+    Ie, the L2 norm between the reconstructed input and the original input.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
+    def forward(self, x_hat: Tensor, x: Tensor, log_var_data: Tensor, return_components: bool = False) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+        """
+        Parameters
+        ----------
+        x_hat : Tensor (B, ...)
+            The reconstructed input tensor.
+        x : Tensor (B, ...)
+            The original input tensor.
+        log_var_data : Tensor (B, ...)
+            The log variance of the data distribution.
+        return_components : bool
+            If True, returns a dictionary containing the computed log likelyhood and its components. Default is False
+
+        Returns
+        -------
+        neg_log_prior : Tensor (1,)
+            The negative log likelyhood of the data distribution.
+        if return_components is True, also returns a dictionary containing the computed negative log likelyhood and its components.
+        """
+        normal = torch.distributions.Normal(
+            loc=x_hat.flatten(start_dim=1),
+            scale=torch.exp(0.5 * log_var_data.flatten(start_dim=1))
+        )
+        log_prior = normal.log_prob(x.flatten(start_dim=1)) # (B, D)
+        log_prior = log_prior.sum(-1).mean() # (1,)
+        if not return_components:
+            return -log_prior
+        else:
+            self.curr_it_component = {
+                "neg_log_prior": -log_prior,
+            }
+            return -log_prior, self.curr_it_component
+        
 class VAELoss(Losse):
     """Computes the ELBO loss for a VAE model. Optionnal beta parameter to weight the KL divergence."""
 
@@ -322,33 +366,15 @@ class VAELoss(Losse):
         self.beta = beta
         self.free_bits = free_bits
         self.kl = KL_divergence(free_bits=free_bits)
-        self.mse = torch.nn.MSELoss(reduction="none")
-
-    def MSE(self, x_hat: Tensor, x: Tensor) -> Tensor:
-        """
-        Parameters
-        ----------
-        x_hat : Tensor (B, ...)
-            The reconstructed input tensor.
-        x : Tensor (B, ...)
-            The original input tensor.
-
-        Returns
-        -------
-        mse : Tensor (1,)
-            The mean squared error between the reconstructed and original input tensors.
-        """
-        # Compute batch_wise mse
-        mse = self.mse(x_hat, x)  # (B, ...)
-        mse = mse.sum(dim=tuple(range(1, len(mse.shape))))  # (B,)
-        return mse.mean()
+        self.prior = LogPrior()
 
     def forward(
         self,
         x_hat: Tensor,
         x: Tensor,
         mu: Tensor,
-        log_sigma: Tensor,
+        log_var_latent: Tensor,
+        log_var_data: Tensor,
         return_components: bool = False,
     ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
         """
@@ -360,8 +386,10 @@ class VAELoss(Losse):
             The original input tensor.
         mu : Tensor (B, D)
             The mean of the latent distribution.
-        log_sigma : Tensor (B, D)
-            The log standard deviation of the latent distribution.
+        log_var_latent : Tensor (B, D)
+            The log variance of the latent distribution.
+        log_var_data : Tensor (B, ...)
+            The log variance of the data distribution.
         return_components : bool
             If True, returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
 
@@ -371,15 +399,12 @@ class VAELoss(Losse):
             The computed loss value, which is the sum of the reconstruction loss and the KL divergence.
         if return_components is True, also returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
         """
-        D = mu.shape[1]
-        # Product of all dimensions except batch size
-        mse_ = self.MSE(x_hat, x)
-        kl_, kl_components = self.kl(mu, log_sigma, return_components=True)
-        loss = mse_ + self.beta * kl_
+        neg_log_prior, prior_components = self.prior(x_hat, x, log_var_data, return_components=True)
+        kl_, kl_components = self.kl(mu, log_var_latent, return_components=True)
+        loss = neg_log_prior + self.beta * kl_
         self.curr_it_component = {
             "base_vae_loss": loss,
-            "mse": mse_,
-        } | self.kl.curr_it_component
+        } | self.kl.curr_it_component | self.prior.curr_it_component
         if not return_components:
             return loss
         return loss, self.curr_it_component

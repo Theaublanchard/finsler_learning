@@ -207,7 +207,7 @@ class BaseVAE(BaseStochasticVAE):
             z = self.reparameterize(mu, log_variance_latent)
         else:
             z = mu
-            x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
+        x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
         return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:

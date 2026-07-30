@@ -18,36 +18,6 @@ from .shepplogan_utils import (
 ################################################################
 # VAE training
 ################################################################
-def export_config(
-    batch_size: int,
-    n_epochs: int,
-    latent_dim: int,
-    export_path: Path,
-    beta: float,
-    lbda: float,
-    lr: float,
-    weight_decay: float,
-    n_neighbors: int,
-):
-    config = {
-        "batch_size": batch_size,
-        "n_epochs": n_epochs,
-        "latent_dim": latent_dim,
-        "beta": beta,
-        "lbda": lbda,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "n_neighbors": n_neighbors,
-        "export_path": str(export_path),
-    }
-    config_file = export_path / "config.json"
-    with open(config_file, "w") as f:
-        import json
-
-        json.dump(config, f, indent=4)
-    LOGGER.info(f"Configuration exported to {config_file}")
-
-
 class CondVAELoss(Losse):
     def __init__(
         self,
@@ -84,7 +54,7 @@ class CondVAELoss(Losse):
         self.vae_loss.beta = value
 
     def forward(
-        self, x_recon, x, mu, logvar, return_components: bool = False
+        self, x_recon, x, mu, log_var_latent,log_var_data, return_components: bool = False,
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Parameters:
@@ -95,12 +65,14 @@ class CondVAELoss(Losse):
             Original input images.
         mu : Tensor (B, latent_dim)
             Latent mean.
-        logvar : Tensor (B, latent_dim)
+        log_var_latent : Tensor (B, latent_dim)
             Latent log variance.
+        log_var_data : Tensor (B, ...)
+            Log variance of the reconstructed data.
         return_components : bool
             If True, returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
         """
-        loss_vae = self.vae_loss(x_recon, x, mu, logvar)
+        loss_vae = self.vae_loss(x_recon, x, mu, log_var_latent, log_var_data)
         # Scale the VAE loss by image size
         loss_vae = loss_vae / x[0].numel()
         self.curr_it_component = self.vae_loss.curr_it_component
