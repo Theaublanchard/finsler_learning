@@ -1,0 +1,8 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "finsler_learning"
+version = "0.1.0"
+description = "Learning Finsler metric for latent space exploration"
