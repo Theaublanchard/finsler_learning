@@ -5,6 +5,7 @@ from torchmetrics import MeanMetric
 from geodesic_toolbox import CoMetric, IdentityCoMetric
 from einops import rearrange, repeat
 
+
 class Losse(torch.nn.Module):
     """
     General loss class.
@@ -83,8 +84,19 @@ def margin_loss(
     omega_i_ = rearrange(omega_i_, "b K d -> (b K) d")
     p_i_ = rearrange(p_i_, "b K d -> (b K) d")
     delta_p_ = rearrange(delta_p, "b K d -> (b K) d")
-    logits = cometric.dot(p_i_, omega_i_, delta_p_)
-    logits = rearrange(logits, "(b K) -> b K", b=omega_i.shape[0])
+
+    # logits = cometric.dot(p_i_, omega_i_, delta_p_)
+    # logits = rearrange(logits, "(b K) -> b K", b=omega_i.shape[0])
+    # This can be too costly to do at once. We thus do it ugly with for loops.
+    # This way the batch size is easier to control
+    logits = []
+    b = omega_i.shape[0]
+    bk = delta_p_.shape[0]
+    for i in range(0, bk, b):
+        end = min(i + b, bk)
+        logits.append(cometric.dot(p_i_[i:end], omega_i_[i:end], delta_p_[i:end]))
+    logits = torch.cat(logits, dim=0)
+    logits = rearrange(logits, "(b K) -> b K", b=b)
 
     preloss = logits * y_ij  # (b,K)
     loss = (1 - margin - preloss).clamp(0)
@@ -173,7 +185,15 @@ def knn_margin_loss(
     p_j, knn_idx = KNN(p_i, p_j, k)  # (b,k,d)
     t_j = t_j[knn_idx]  # (b,k)
     res = margin_loss(
-        omega_i, p_i, t_i, p_j, t_j, reduce="mean", margin=margin, cometric=cometric, return_acc=return_acc
+        omega_i,
+        p_i,
+        t_i,
+        p_j,
+        t_j,
+        reduce="mean",
+        margin=margin,
+        cometric=cometric,
+        return_acc=return_acc,
     )
     return res
 
@@ -228,7 +248,7 @@ class GroupedMarginLoss(Losse):
             The time variable of the points p_j.
         cometric : CoMetric
             The cometric to use for the dot product. Default is IdentityCoMetric.
-        
+
         Returns
         -------
         loss : Tensor (1,)
@@ -236,11 +256,26 @@ class GroupedMarginLoss(Losse):
         """
         if self.k is not None:
             loss, accuracy = knn_margin_loss(
-                omega_i, p_i, t_i, p_j, t_j, self.k, self.margin, cometric=cometric,return_acc=True
+                omega_i,
+                p_i,
+                t_i,
+                p_j,
+                t_j,
+                self.k,
+                self.margin,
+                cometric=cometric,
+                return_acc=True,
             )
         else:
             loss, accuracy = margin_loss(
-                omega_i, p_i, t_i, p_j, t_j, margin=self.margin,cometric=cometric, return_acc=True
+                omega_i,
+                p_i,
+                t_i,
+                p_j,
+                t_j,
+                margin=self.margin,
+                cometric=cometric,
+                return_acc=True,
             )
         self.acc_metric(accuracy)
         self.acc = accuracy
@@ -298,10 +333,12 @@ class KL_divergence(Losse):
         if return_components is True, also returns a dictionary containing the computed KL divergence and its components.
         """
         normal_0 = torch.distributions.Normal(loc=mu, scale=torch.exp(0.5 * log_var_latent))
-        normal_1 = torch.distributions.Normal(loc=torch.zeros_like(mu), scale=torch.ones_like(log_var_latent))
+        normal_1 = torch.distributions.Normal(
+            loc=torch.zeros_like(mu), scale=torch.ones_like(log_var_latent)
+        )
 
         kl_per_dim_raw = torch.distributions.kl_divergence(normal_0, normal_1)
-        kl_raw = kl_per_dim_raw.sum(-1).mean() 
+        kl_raw = kl_per_dim_raw.sum(-1).mean()
         kl_per_dim = kl_per_dim_raw.sum(-1)
         if self.free_bits > 0:
             kl_per_dim = torch.clamp(kl_per_dim, min=self.free_bits)
@@ -316,16 +353,20 @@ class KL_divergence(Losse):
             return kl
         return kl, self.curr_it_component
 
+
 class LogPrior(Losse):
     """
     Compute the log likelyhood of a multivariate normal distribution.
     In the usual settings, this amounts to the reconstruction loss of a VAE model.
     Ie, the L2 norm between the reconstructed input and the original input.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def forward(self, x_hat: Tensor, x: Tensor, log_var_data: Tensor, return_components: bool = False) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+    def forward(
+        self, x_hat: Tensor, x: Tensor, log_var_data: Tensor, return_components: bool = False
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
         """
         Parameters
         ----------
@@ -346,10 +387,10 @@ class LogPrior(Losse):
         """
         normal = torch.distributions.Normal(
             loc=x_hat.flatten(start_dim=1),
-            scale=torch.exp(0.5 * log_var_data.flatten(start_dim=1))
+            scale=torch.exp(0.5 * log_var_data.flatten(start_dim=1)),
         )
-        log_prior = normal.log_prob(x.flatten(start_dim=1)) # (B, D)
-        log_prior = log_prior.sum(-1).mean() # (1,)
+        log_prior = normal.log_prob(x.flatten(start_dim=1))  # (B, D)
+        log_prior = log_prior.sum(-1).mean()  # (1,)
         if not return_components:
             return -log_prior
         else:
@@ -357,7 +398,8 @@ class LogPrior(Losse):
                 "neg_log_prior": -log_prior,
             }
             return -log_prior, self.curr_it_component
-        
+
+
 class VAELoss(Losse):
     """Computes the ELBO loss for a VAE model. Optionnal beta parameter to weight the KL divergence."""
 
@@ -399,12 +441,18 @@ class VAELoss(Losse):
             The computed loss value, which is the sum of the reconstruction loss and the KL divergence.
         if return_components is True, also returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
         """
-        neg_log_prior, prior_components = self.prior(x_hat, x, log_var_data, return_components=True)
+        neg_log_prior, prior_components = self.prior(
+            x_hat, x, log_var_data, return_components=True
+        )
         kl_, kl_components = self.kl(mu, log_var_latent, return_components=True)
         loss = neg_log_prior + self.beta * kl_
-        self.curr_it_component = {
-            "base_vae_loss": loss,
-        } | self.kl.curr_it_component | self.prior.curr_it_component
+        self.curr_it_component = (
+            {
+                "base_vae_loss": loss,
+            }
+            | self.kl.curr_it_component
+            | self.prior.curr_it_component
+        )
         if not return_components:
             return loss
         return loss, self.curr_it_component
