@@ -25,8 +25,8 @@ import torch.nn as nn
 class BaseEncoder(nn.Module):
     def __init__(self):
         super(BaseEncoder, self).__init__()
-        self.mu_branch = ...
-        self.log_var_branch = ...
+        self.mu_branch: torch.nn.Module = ...
+        self.log_var_branch: torch.nn.Module = ...
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         """
@@ -42,13 +42,30 @@ class BaseEncoder(nn.Module):
         z : Tensor (batch_size, latent_dim)
             The latent code obtained from the encoder.
         log_variance : Tensor (batch_size, latent_dim)
+            The estimated log variance of the latent code.
         """
+
+
+class LogVarToStd(nn.Module):
+    def __init__(self, log_var_module: nn.Module):
+        super().__init__()
+        self.log_var_module = log_var_module
+
+    def forward(self, x: Tensor) -> Tensor:
+        log_var = self.log_var_module(x)
+        std = torch.exp(0.5 * log_var)
+        return std
+
 
 class BaseStochasticDecoder(nn.Module):
     def __init__(self):
         super(BaseStochasticDecoder, self).__init__()
-        self.mu_branch = ...
-        self.log_var_branch = ...
+        self.mu_branch: torch.nn.Module = ...
+        self.log_var_branch: torch.nn.Module = ...
+
+        # This doesn't actually work you need to do that after the model is created because the log_var_branch is not defined yet
+        # But you get the jist
+        self.std_branch: torch.nn.Module = LogVarToStd(self.log_var_branch)
 
     def complete_forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
         """
@@ -146,15 +163,13 @@ class BaseStochasticVAE(nn.Module):
         if self.training:
             z = self.reparameterize(mu, log_variance_latent)
             x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
-            x_reconstructed = self.reparameterize(
-                x_reconstructed, log_variance_reconstructed
-            )
+            x_reconstructed = self.reparameterize(x_reconstructed, log_variance_reconstructed)
         else:
             z = mu
             x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
         return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
 
-    def forward(self,x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the stochastic VAE model that matches regular VAE forward signature.
 
@@ -174,6 +189,7 @@ class BaseStochasticVAE(nn.Module):
         """
         x_reconstructed, mu, log_variance_latent, _ = self.complete_forward(x)
         return x_reconstructed, mu, log_variance_latent
+
 
 class BaseVAE(BaseStochasticVAE):
     def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
@@ -237,9 +253,6 @@ class BaseVAE(BaseStochasticVAE):
         return x_reconstructed, mu, log_variance
 
 
-
-
-
 #############################
 # MLP models
 #############################
@@ -292,10 +305,10 @@ class Decoder_MLP(BaseDecoder):
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
             self.layers.append(nn.ReLU())
         self.layers.append(nn.Linear(hidden_layers[-1], self.input_dim_flat))
-        self.layers = nn.Sequential(*self.layers)
+        self.mu_branch = nn.Sequential(*self.mu_branch)
 
     def forward(self, z: Tensor) -> Tensor:
-        x_reco = self.layers(z)
+        x_reco = self.mu_branch(z)
         x_reco = x_reco.reshape(-1, *self.input_dim)  # Reshape to original input dimensions
         return x_reco
 
@@ -464,10 +477,10 @@ class SmallConvDecoder(BaseDecoder):
             nn.InstanceNorm2d(num_features=self.out_channels),
             nn.Sigmoid(),
         )
-        self.decoder_branch = nn.Sequential(self.l1, self.l2, self.l3, self.mu)
+        self.mu_branch = nn.Sequential(self.l1, self.l2, self.l3, self.mu)
 
     def forward(self, z: Tensor):
-        x_hat = self.decoder_branch(z)
+        x_hat = self.mu_branch(z)
         return x_hat
 
 
@@ -603,6 +616,7 @@ class ConvDecoder(nn.Module):
         x = self.sigmoid(x)
         return x
 
+
 class VAE(BaseVAE):
     def __init__(
         self, latent_dim: int, dropout: float = 0.0, in_channels: int = 1, affine: bool = False
@@ -647,16 +661,301 @@ class VAE(BaseVAE):
             def __init__(self, decoder, fc_decode):
                 super().__init__()
                 self.decoder = decoder
+                self.unflatten = nn.Unflatten(dim=-1, unflattened_size=(256, 16, 16))
                 self.fc_decode = fc_decode
+                self.mu_branch = nn.Sequential(self.fc_decode, self.unflatten, self.decoder)
 
             def forward(self, z):
-                z = self.fc_decode(z)
-                z = torch.unflatten(z, dim=-1, sizes=(256, 16, 16))
-                x_hat = self.decoder(z)
-                return x_hat
+                return self.mu_branch(z)
 
         self.encoder = EncoderWrapper(self.encoder_, self.fc_mu, self.fc_logvar)
         self.decoder = DecoderWrapper(self.decoder_, self.fc_decode)
+
+
+class PositiveLinear(nn.Module):
+    """
+    Positive Linear layer that ensures the weights and biases are positive by applying a softplus activation to them.
+    """
+
+    def __init__(self, in_features: int, out_features: int, bias: bool = True):
+        super().__init__()
+        self.W = nn.Parameter(torch.randn(out_features, in_features))
+        if bias:
+            self.b = nn.Parameter(torch.randn(out_features))
+        else:
+            self.b = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        W_pos = F.softplus(self.W)
+        b_pos = F.softplus(self.b) if self.b is not None else None
+        return F.linear(x, W_pos, b_pos)
+
+
+class RBFLayer(nn.Module):
+    """
+    RBF Layer that computes:
+    v_k(x) = exp(-||x - c_k||^2 / (2 * tau_k^2)) for k = 1, ..., K
+    where c_k are the centroids and tau_k are the bandwidths.
+
+    Parameters:
+    ----------
+    data : Tensor (N, d)
+        The data points used to compute the centroids and bandwidths.
+    K : int
+        The number of centroids to use. If K=-1, use all data points as centroids.
+    kappa : float
+        The scaling factor for the bandwidths. The bandwidths are computed as tau_k^2
+    """
+
+    def __init__(self, data: torch.Tensor, K: int, kappa: float = 1.0):
+        super().__init__()
+        self.in_features = data.shape[1]
+
+        self.register_buffer("kappa", Tensor([kappa]))
+        self.register_buffer("centroids", data)
+        self.register_buffer(
+            "tau", torch.ones(data.shape[0], device=data.device, dtype=data.dtype)
+        )
+
+        if K is not None:
+            if K > data.shape[0]:
+                print(
+                    f"Warning: K={K} is greater than the number of data points {data.shape[0]}. Using all data points."
+                )
+                K = data.shape[0]
+            self.process_centroids(K)
+
+        self.K = self.centroids.shape[0]
+
+        tau_squared = self.compute_bandwidths(data, kappa)
+        self.register_buffer("tau_squared", tau_squared)
+
+    def process_centroids(self, K: int) -> None:
+        """
+        Process the centroids to select K representative centroids using K-Medoids clustering.
+
+        Parameters:
+        K : int
+            The number of centroids to select. If K=-1, use all centroids.
+        """
+        dst_mat = torch.cdist(self.centroids, self.centroids, p=2).sqrt().cpu().numpy()
+        kmedoids_model = kmedoids.KMedoids(
+            n_clusters=K, metric="precomputed", random_state=1312
+        )
+        kmedoids_model.fit(dst_mat)
+        self.centroids = self.centroids[kmedoids_model.medoid_indices_]
+
+    def compute_bandwidths(
+        self,
+        data: Tensor,
+        kappa: Tensor,
+        min_cluster_size: int = 3,
+        neighbor_rank: int = 5,
+        min_scale_quantile: float = 0.25,
+        max_scale_quantile: float = 0.95,
+        eps: float = 1e-12,
+    ) -> Tensor:
+        """
+        Compute the (squared) bandwidths of the RBF kernels as:
+
+            tau_k^2 = kappa * scale_k^2
+
+        where scale_k^2 is an adaptive local-scale estimate for centroid c_k,
+        blended between two sources:
+
+        1. Local in-cluster scale (reliable when the cluster has enough points):
+            local_scale_k^2 = (1 / Card(C_k)) * sum_{x_i in C_k} ||c_k - x_i||^2
+        where C_k is the set of data points assigned to centroid c_k (i.e. c_k
+        is their nearest centroid).
+
+        2. Neighbor-based robust scale (used as a fallback when Card(C_k) is
+        small and the local estimate would be unreliable/pathological):
+            nn_scale_k^2 = ||c_k - c_(neighbor_rank)||^2
+        i.e. the squared distance from c_k to its `neighbor_rank`-th nearest
+        neighboring centroid (not the 1st, to avoid overly peaked kernels).
+        This is clamped between global quantiles of nn_scale^2 across all
+        centroids (min_scale_quantile, max_scale_quantile) so that outlier
+        centroids do not produce pathologically small or large bandwidths.
+
+        The two estimates are blended per-centroid via a reliability weight
+        r_k in [0, 1], based on the cluster cardinality relative to
+        min_cluster_size:
+
+            r_k     = clamp((Card(C_k) - 1) / (min_cluster_size - 1), 0, 1)
+            scale_k^2 = r_k * local_scale_k^2 + (1 - r_k) * nn_scale_k^2
+
+        The blended scale is then re-clamped to the same global [min, max]
+        bounds, and the final bandwidth is:
+
+            tau_k^2 = kappa * scale_k^2
+
+        Parameters:
+        -----------
+        data : Tensor (N, d)
+            The original data points, used to compute the clusters of centroids.
+        kappa : Tensor
+            The scaling factor applied to the blended scale to obtain tau^2.
+        min_cluster_size : int
+            Cluster cardinality at or above which the local in-cluster scale is
+            trusted fully (reliability = 1).
+        neighbor_rank : int
+            Which nearest-neighbor centroid (1-indexed, excluding self) to use
+            for the robust fallback scale.
+        min_scale_quantile, max_scale_quantile : float
+            Quantiles (over all centroids) used to clamp the neighbor-based
+            scale, preventing outlier centroids from dominating.
+        eps : float
+            Small constant to avoid division by zero / degenerate scales.
+
+        Returns:
+        --------
+        tau_squared : Tensor (K,)
+            The computed squared bandwidths for each centroid.
+        """
+        K = self.centroids.shape[0]
+
+        # Assign each sample to the closest centroid.
+        dst_data = torch.cdist(self.centroids, data, p=2)  # (K,N)
+        closest_centroid = dst_data.argmin(dim=0)  # (N,)
+
+        # Robust fallback scale from centroid geometry.
+        # Use a higher-order neighbor to avoid over-peaked kernels when K is large.
+        dst_centroids = torch.cdist(self.centroids, self.centroids, p=2)
+        dst_centroids.fill_diagonal_(float("inf"))
+        sorted_dst, _ = torch.sort(dst_centroids, dim=1)
+        rank = min(max(neighbor_rank - 1, 0), max(K - 2, 0))
+        nn_dist = sorted_dst[:, rank]  # (K,)
+        nn_scale2 = nn_dist.pow(2).clamp_min(eps)
+
+        # Global robust floor/ceiling so outlier clusters do not dominate smoothness.
+        min_scale2 = torch.quantile(nn_scale2, min_scale_quantile).clamp_min(eps)
+        max_scale2 = torch.quantile(nn_scale2, max_scale_quantile).clamp_min(eps)
+        nn_scale2 = nn_scale2.clamp(min=min_scale2, max=max_scale2)
+
+        # Local in-cluster scale. May be unreliable when cluster cardinality is very small.
+        local_scale2 = torch.zeros(K, device=self.centroids.device, dtype=self.centroids.dtype)
+        counts = torch.bincount(closest_centroid, minlength=K).to(self.centroids.dtype)
+        for k in range(K):
+            cluster_points = data[closest_centroid == k]  # (Card(C_k),d)
+            if cluster_points.shape[0] > 0:
+                c_k = self.centroids[k : k + 1]
+                dist2 = torch.cdist(c_k, cluster_points, p=2).pow(2)
+                local_scale2[k] = dist2.mean().clamp_min(eps)
+
+        # Blend local scale with centroid-neighborhood scale.
+        # For small clusters (K ~ N), this prevents pathological very narrow kernels.
+        reliability = ((counts - 1) / max(min_cluster_size - 1, 1)).clamp(0.0, 1.0)
+        scale2 = reliability * local_scale2 + (1.0 - reliability) * nn_scale2
+        scale2 = scale2.clamp(min=min_scale2, max=max_scale2)
+
+        tau_squared = kappa * scale2
+
+        # Fix any potential numerical issues with the bandwidths
+        if not torch.isfinite(tau_squared).all():
+            finite_mask = torch.isfinite(tau_squared)
+            if finite_mask.any():
+                fill_value = tau_squared[finite_mask].median()
+            else:
+                fill_value = torch.tensor(
+                    1.0, device=tau_squared.device, dtype=tau_squared.dtype
+                )
+            tau_squared = torch.where(finite_mask, tau_squared, fill_value)
+        return tau_squared
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Forward pass of the RBF layer.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, in_features)
+            The input tensor to be transformed by the RBF layer.
+
+        Returns:
+        -------
+        rbf_output : Tensor (batch_size, K)
+            The output tensor after applying the RBF transformation.
+        """
+        dists_squared = torch.cdist(x, self.centroids, p=2).pow(2)  # (batch_size, K)
+        rbf_output = torch.exp(-dists_squared / (2 * self.tau_squared))
+        return rbf_output
+
+
+class LinearVarianceDecoderBranch(nn.Module):
+    """
+    This layer compute the log variance through beta(z) = W v(z) + b, where v(z) is the output of the RBF layer and W, b are learnable positive parameters.
+    And we have that beta(z) = 1/var(z) = 1/sigma^2(z), so that we can compute the log variance as log(sigma^2(z)) = -log(beta(z)) = -log(W v(z) + b)
+
+    Parameters:
+    ----------
+    latent_dim : int
+        Dimension of the latent space.
+    output_shape : tuple[int, ...]
+        Shape of the output tensor. Eg (C,H,W) for images or (D,) for 1D data.
+    data : Tensor (N, latent_dim)
+        The data points used to compute the centroids and bandwidths for the RBF layer.
+    K : int
+        The number of centroids to use in the RBF layer. If K=-1, use all data points as centroids.
+    kappa : float
+        The scaling factor for the bandwidths in the RBF layer.
+    """
+
+    def __init__(
+        self,
+        latent_dim: int,
+        output_shape: tuple[int, ...],
+        data: Tensor,
+        K: int,
+        kappa: float = 1.0,
+    ):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.output_shape = output_shape
+        self.flat_dim = np.prod(output_shape)
+
+        self.v = RBFLayer(data=data, K=K, kappa=kappa)
+        self.W = PositiveLinear(in_features=K, out_features=self.flat_dim)
+
+    def forward(self, z: Tensor) -> Tensor:
+        v_z = self.v(z)
+        beta_z = self.W(v_z)
+        log_variance_hat = -torch.log(beta_z + 1e-8)  # Add a small constant to avoid log(0)
+        log_variance_hat = log_variance_hat.view(-1, *self.output_shape)
+        return log_variance_hat
+
+
+class VarianceDecoderBranch(nn.Module):
+    def __init__(self, latent_dim: int, out_channels: int = 1):
+        super().__init__()
+        self.latent_dim = latent_dim
+        self.out_channels = out_channels
+
+        self.fc_decode = nn.Linear(latent_dim, 256 * 16 * 16)
+        self.decoder_ = ConvDecoder(dropout=0.0, in_channels=out_channels, affine=True)
+
+    def forward(self, z):
+        z = self.fc_decode(z)
+        z = torch.unflatten(z, dim=-1, sizes=(256, 16, 16))
+        log_variance_hat = self.decoder_(z)
+        return log_variance_hat
+
+
+class StochasticVAE(BaseStochasticVAE):
+    def __init__(self, base_model: VAE, data: Tensor, K: int, kappa: float = 1.0):
+        super().__init__()
+        self.encoder = base_model.encoder
+        self.decoder = base_model.decoder
+        self.decoder.mu_branch = base_model.decoder.mu_branch
+        
+        # Terrible idea it uses so much memory and parameters
+        self.decoder.log_var_branch = LinearVarianceDecoderBranch(
+            latent_dim=base_model.latent_dim,
+            output_shape=(1, 256, 256),
+            data=data,
+            K=K,
+            kappa=kappa,
+        )
+        self.decoder.std_branch = LogVarToStd(self.decoder.log_var_branch)
 
 
 #############################
