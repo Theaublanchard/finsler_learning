@@ -14,9 +14,16 @@ from geodesic_toolbox import (
     PullBackCometric,
     IdentityCoMetric,
     LANDCometric,
+    LANDRBFCometric,
 )
 
-from finsler_learning import BaseVAE, VAE, SheppLoganDataset, WarpedDecoder
+from finsler_learning import (
+    BaseStochasticVAE,
+    VAE,
+    StochasticVAE,
+    SheppLoganDataset,
+    WarpedDecoder,
+)
 
 #################################################################
 # Define constants
@@ -28,11 +35,15 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LOGGER = logging.getLogger()
 
 
-VALID_COMETRIC_TYPES = [
-    # "vae", "pullback", "euclidean",
-    "warped_pullback",
-    # "land"
-]
+VALID_COMETRIC_TYPES = {
+    "euclidean": {"is_fast": True, "requires_stochastic_vae": False},
+    "land": {"is_fast": True, "requires_stochastic_vae": False},
+    "cov_centroids": {"is_fast": True, "requires_stochastic_vae": False},
+    "pullback_centroids": {"is_fast": False, "requires_stochastic_vae": False},
+    "warped_pullback": {"is_fast": False, "requires_stochastic_vae": False},
+    "land_rbf": {"is_fast": True, "requires_stochastic_vae": False},
+    "rbf_pullback": {"is_fast": False, "requires_stochastic_vae": True},
+}
 
 
 @dataclass
@@ -79,7 +90,7 @@ class SheppLoganPipelineConfig:
     export_path: Path
     latent_dim: int
     label_noise: float = 0.0
-    K_cometric: int = -1
+    K_cometric: int = None
     IMG_SIZE: int = IMG_SIZE
     device: torch.device = DEVICE
     eval_quality: bool = True
@@ -126,7 +137,21 @@ def get_models(latent_dim: int) -> VAE:
     return model
 
 
-def try_load_pretrained_models(save_folder: Path, model: BaseVAE):
+def get_stochastic_models(
+    latent_dim: int,
+    save_folder: Path,
+    dataloader: torch.utils.data.DataLoader,
+    K: int,
+    kappa: float,
+) -> StochasticVAE:
+    base_model = VAE(latent_dim=latent_dim, affine=True)
+    try_load_pretrained_models(save_folder, base_model)
+    data, _, _ = embed_dataset(base_model.encoder, dataloader, DEVICE)
+    model = StochasticVAE(base_model=base_model, data=data, K=K, kappa=kappa)
+    return model
+
+
+def try_load_pretrained_models(save_folder: Path, model: BaseStochasticVAE):
     if (save_folder / "encoder.pth").exists():
         state_dict_enc = torch.load(save_folder / "encoder.pth", weights_only=True)
         model.encoder.load_state_dict(state_dict_enc)
@@ -135,6 +160,24 @@ def try_load_pretrained_models(save_folder: Path, model: BaseVAE):
         state_dict_dec = torch.load(save_folder / "decoder.pth", weights_only=True)
         model.decoder.load_state_dict(state_dict_dec)
         LOGGER.info(f"Loaded decoder from {save_folder / 'decoder.pth'}")
+
+
+def get_stochastic_vae_pretrained(
+    save_folder: Path,
+    latent_dim: int,
+    dataloader: torch.utils.data.DataLoader,
+    K: int,
+    kappa: float,
+) -> StochasticVAE:
+    model = get_stochastic_models(
+        latent_dim=latent_dim,
+        save_folder=save_folder,
+        dataloader=dataloader,
+        K=K,
+        kappa=kappa,
+    )
+    try_load_pretrained_models(save_folder / "stochastic_vae", model)
+    return model
 
 
 def get_shepplogan_dataloaders(
@@ -195,7 +238,7 @@ def embed_dataset(
     return z_all, labels_all, log_var_all
 
 
-def get_cometric_vae(
+def get_cometric_cov_centroids(
     batch_size: int,
     latent_dim: int,
     save_folder: Path,
@@ -225,7 +268,7 @@ def get_cometric_vae(
     return cometric
 
 
-def get_cometric_pullback(
+def get_cometric_pullback_centroids(
     batch_size: int,
     latent_dim: int,
     save_folder: Path,
@@ -328,7 +371,72 @@ def get_cometric_warped_pullback(
     return pullback_cometric
 
 
-@torch.no_grad()
+def get_cometric_land_rbf(
+    batch_size: int,
+    latent_dim: int,
+    save_folder: Path,
+    K: int,
+    device: torch.device = DEVICE,
+) -> LANDRBFCometric:
+    # Don't bother with all the params as it's going to load generated data anyway
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    shepplogan_train_loader, _ = get_shepplogan_dataloaders(
+        dataset_config=dl_config, export_path=save_folder
+    )
+    model = get_models(latent_dim=latent_dim)
+    try_load_pretrained_models(save_folder, model)
+    centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
+
+    land_rbf_cometric = LANDRBFCometric(
+        data=centroids,
+        K=K,
+        kappa=1.0,
+        learn_weights=True,
+        reg_coef=1e-3,
+    ).to(device)
+    return land_rbf_cometric
+
+
+def get_cometric_rbf_pullback(
+    batch_size: int,
+    latent_dim: int,
+    save_folder: Path,
+    K: int,
+    device: torch.device = DEVICE,
+) -> PullBackCometric:
+    # Don't bother with all the params as it's going to load generated data anyway
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    shepplogan_train_loader, _ = get_shepplogan_dataloaders(
+        dataset_config=dl_config, export_path=save_folder
+    )
+    model = get_stochastic_vae_pretrained(
+        save_folder=save_folder,
+        latent_dim=latent_dim,
+        dataloader=shepplogan_train_loader,
+        K=K,
+        kappa=1.0,
+    ).to(device)
+
+    pb_decoder_mu = PullBackCometric(
+        diffeo=model.decoder.mu_branch,
+        method="finite_difference",
+        reg_coef=0.0,
+    )
+    pb_decoder_logvar = PullBackCometric(
+        diffeo=model.decoder.std_branch,
+        method="finite_difference",
+        reg_coef=0.0,
+    )
+
+    cometric = pb_decoder_mu + pb_decoder_logvar
+    return cometric.to(device)
+
+
+# @torch.inference_mode()
 def get_cometric(
     latent_dim: int,
     export_path: Path,
@@ -340,19 +448,19 @@ def get_cometric(
 ) -> CoMetric:
 
     assert (
-        cometric_type in VALID_COMETRIC_TYPES
-    ), f"Invalid cometric_type: {cometric_type}. Must be one of {VALID_COMETRIC_TYPES}."
+        cometric_type in VALID_COMETRIC_TYPES.keys()
+    ), f"Invalid cometric_type: {cometric_type}. Must be one of {VALID_COMETRIC_TYPES.keys()}."
 
-    if cometric_type == "vae":
-        cometric = get_cometric_vae(
+    if cometric_type == "cov_centroids":
+        cometric = get_cometric_cov_centroids(
             batch_size=batch_size,
             latent_dim=latent_dim,
             save_folder=export_path,
             K=k,
             device=device,
         )
-    elif cometric_type == "pullback":
-        cometric = get_cometric_pullback(
+    elif cometric_type == "pullback_centroids":
+        cometric = get_cometric_pullback_centroids(
             batch_size=batch_size,
             latent_dim=latent_dim,
             save_folder=export_path,
@@ -377,8 +485,24 @@ def get_cometric(
             K=k,
             device=device,
         )
+    elif cometric_type == "land_rbf":
+        cometric = get_cometric_land_rbf(
+            batch_size=batch_size,
+            latent_dim=latent_dim,
+            save_folder=export_path,
+            K=k,
+            device=device,
+        )
+    elif cometric_type == "rbf_pullback":
+        cometric = get_cometric_rbf_pullback(
+            batch_size=batch_size,
+            latent_dim=latent_dim,
+            save_folder=export_path,
+            K=k,
+            device=device,
+        )
     else:
-        raise ValueError(
-            f"Invalid cometric_type: {cometric_type}. Must be one of {VALID_COMETRIC_TYPES}."
+        raise NotImplementedError(
+            f"Cometric type {cometric_type} not implemented. Must be one of {VALID_COMETRIC_TYPES.keys()}."
         )
     return cometric.to(device)
