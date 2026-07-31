@@ -540,12 +540,14 @@ class UpsampleBlock(nn.Module):
         kernel_size=3,
         stride=1,
         padding=1,
-        upsample=True,
+        upsample_scale: float = None,
         affine: bool = False,
     ):
         super().__init__()
         self.upsample = (
-            nn.Upsample(scale_factor=2, mode="nearest") if upsample else nn.Identity()
+            nn.Upsample(scale_factor=upsample_scale, mode="nearest")
+            if upsample_scale
+            else nn.Identity()
         )
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.norm = nn.InstanceNorm2d(out_channels, affine=affine)
@@ -591,11 +593,13 @@ class ConvDecoder(nn.Module):
     def __init__(self, dropout: float = 0.0, in_channels: int = 1, affine: bool = False):
         super().__init__()
         # 16x16 -> 16x16 -> 32x32 -> 64x64 -> 128x128 -> 256x256
-        self.block1 = UpsampleBlock(256, 128, upsample=False, affine=affine)  # No upsample
-        self.block2 = UpsampleBlock(128, 64, upsample=True, affine=affine)
-        self.block3 = UpsampleBlock(64, 32, upsample=True, affine=affine)
-        self.block4 = UpsampleBlock(32, 16, upsample=True, affine=affine)
-        # self.block5 = UpsampleBlock(16, in_channels, upsample=True)
+        self.block1 = UpsampleBlock(
+            256, 128, upsample_scale=None, affine=affine
+        )  # No upsample
+        self.block2 = UpsampleBlock(128, 64, upsample_scale=2.0, affine=affine)
+        self.block3 = UpsampleBlock(64, 32, upsample_scale=2.0, affine=affine)
+        self.block4 = UpsampleBlock(32, 16, upsample_scale=2.0, affine=affine)
+        # self.block5 = UpsampleBlock(16, in_channels, upsample_scale=2.0, affine=affine)
 
         self.upsample_final = nn.Upsample(scale_factor=2, mode="nearest")
         self.conv_final = nn.Conv2d(16, in_channels, kernel_size=3, stride=1, padding=1)
@@ -619,7 +623,7 @@ class ConvDecoder(nn.Module):
 
 class VAE(BaseVAE):
     def __init__(
-        self, latent_dim: int, dropout: float = 0.0, in_channels: int = 1, affine: bool = False
+        self, latent_dim: int, dropout: float = 0.0, in_channels: int = 1, affine: bool = True
     ):
         super().__init__()
         self.latent_dim = latent_dim
@@ -910,6 +914,8 @@ class LinearVarianceDecoderBranch(nn.Module):
     ):
         super().__init__()
         self.latent_dim = latent_dim
+        if isinstance(output_shape, int):
+            output_shape = (output_shape,)
         self.output_shape = output_shape
         self.flat_dim = np.prod(output_shape)
 
@@ -925,18 +931,42 @@ class LinearVarianceDecoderBranch(nn.Module):
 
 
 class VarianceDecoderBranch(nn.Module):
-    def __init__(self, latent_dim: int, out_channels: int = 1):
+    def __init__(
+        self,
+        latent_dim: int,
+        data: Tensor,
+        K: int,
+        kappa: float = 1.0,
+        affine: bool = True,
+        p_dropout: float = 0.1,
+    ):
         super().__init__()
-        self.latent_dim = latent_dim
-        self.out_channels = out_channels
+        self.linear_rdf = LinearVarianceDecoderBranch(
+            latent_dim=latent_dim, output_shape=64 * 8 * 8, data=data, K=K, kappa=kappa,
+        )
+        self.unflatten = nn.Unflatten(dim=1, unflattened_size=(64, 8, 8))
+        self.block1 = UpsampleBlock(64, 32, upsample_scale=4.0, affine=affine)
+        self.block2 = UpsampleBlock(32, 16, upsample_scale=4.0, affine=affine)
+        self.block3 = UpsampleBlock(16, 8, upsample_scale=2.0, affine=affine)
+        self.conv_final = nn.Conv2d(8, 1, kernel_size=3, stride=1, padding=1)
+        if p_dropout > 0.0:
+            self.dropout = nn.Dropout2d(p=p_dropout)
+        else:
+            self.dropout = nn.Identity()
 
-        self.fc_decode = nn.Linear(latent_dim, 256 * 16 * 16)
-        self.decoder_ = ConvDecoder(dropout=0.0, in_channels=out_channels, affine=True)
-
-    def forward(self, z):
-        z = self.fc_decode(z)
-        z = torch.unflatten(z, dim=-1, sizes=(256, 16, 16))
-        log_variance_hat = self.decoder_(z)
+        self.log_var_branch = nn.Sequential(
+            self.linear_rdf,
+            self.unflatten,
+            self.block1,
+            self.dropout,
+            self.block2,
+            self.dropout,
+            self.block3,
+            self.dropout,
+            self.conv_final,
+        )
+    def forward(self, z: Tensor) -> Tensor:
+        log_variance_hat = self.log_var_branch(z)
         return log_variance_hat
 
 
@@ -946,14 +976,22 @@ class StochasticVAE(BaseStochasticVAE):
         self.encoder = base_model.encoder
         self.decoder = base_model.decoder
         self.decoder.mu_branch = base_model.decoder.mu_branch
-        
-        # Terrible idea it uses so much memory and parameters
-        self.decoder.log_var_branch = LinearVarianceDecoderBranch(
+
+        # # Terrible idea it uses so much memory and parameters
+        # self.decoder.log_var_branch = LinearVarianceDecoderBranch(
+        #     latent_dim=base_model.latent_dim,
+        #     output_shape=(1, 256, 256),
+        #     data=data,
+        #     K=K,
+        #     kappa=kappa,
+        # )
+        self.decoder.log_var_branch = VarianceDecoderBranch(
             latent_dim=base_model.latent_dim,
-            output_shape=(1, 256, 256),
             data=data,
             K=K,
             kappa=kappa,
+            affine=True,
+            p_dropout=0.1,
         )
         self.decoder.std_branch = LogVarToStd(self.decoder.log_var_branch)
 
