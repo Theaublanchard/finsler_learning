@@ -55,6 +55,9 @@ def train_randers(
         export_path=export_path,
     )
 
+    if k is None:
+        k = len(shepplogan_train_loader.dataset)
+
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(export_path, model)
     dtype = next(model.parameters()).dtype
