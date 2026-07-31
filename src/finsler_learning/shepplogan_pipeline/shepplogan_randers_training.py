@@ -1,3 +1,5 @@
+import datetime
+
 from finsler_learning.models import (
     HyperPlanPredictor,
     DummyAccuracyPredictor,
@@ -74,6 +76,7 @@ def train_randers(
         cometric_type=cometric_type,
     )
 
+    start_time = datetime.datetime.now()
     config = RandersLearningConfig(
         dataloader_train=shepplogan_train_loader,
         dataloader_test=shepp_logan_test_loader,
@@ -88,3 +91,9 @@ def train_randers(
         cometric=cometric,
     )
     train_hyperplane(config)
+
+    end_time = datetime.datetime.now()
+    elapsed_time = end_time - start_time
+    LOGGER.info(
+        f"Randers training completed in: {elapsed_time} for cometric type: {cometric_type}"
+    )
