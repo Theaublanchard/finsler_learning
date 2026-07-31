@@ -14,27 +14,27 @@ from geodesic_toolbox import (
     IdentityCoMetric,
 )
 
-from finsler_learning.logger import setup_logger
-from finsler_learning.models import VAE
+from ..logger import setup_logger
+from ..models import VAE
 
-from finsler_learning.base_geodesic_evaluation import (
+from ..base_geodesic_evaluation import (
     GeodesicEvalRiemannConfig,
 )
-from finsler_learning.base_quality_evaluation import (
+from ..base_quality_evaluation import (
     evaluate_dataloaders,
     eval_ae_model,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
-from finsler_learning.shepplogan_pipeline.shepplogan_vae import train_vae
-from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
+from .shepplogan_utils import *
+from .shepplogan_vae import train_vae
+from .shepplogan_image_regressor import (
     get_image_regressor,
     train_regressor,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import (
+from .shepplogan_randers_training import (
     train_randers,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import evaluate_monotonicity
-from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
+from .shepplogan_interpolation import evaluate_monotonicity
+from .shepplogan_extrapolation import (
     evaluate_extrapolation,
 )
 
