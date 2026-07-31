@@ -14,28 +14,31 @@ from geodesic_toolbox import (
     IdentityCoMetric,
 )
 
-from ..logger import setup_logger
-from ..models import VAE
+from finsler_learning.logger import setup_logger
+from finsler_learning.models import VAE
 
-from ..base_geodesic_evaluation import (
+from finsler_learning.base_geodesic_evaluation import (
     GeodesicEvalRiemannConfig,
 )
-from ..base_quality_evaluation import (
+from finsler_learning.base_quality_evaluation import (
     evaluate_dataloaders,
     eval_ae_model,
 )
-from .shepplogan_utils import *
-from .shepplogan_vae import train_vae
-from .shepplogan_image_regressor import (
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+from finsler_learning.shepplogan_pipeline.shepplogan_vae import train_vae
+from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
     get_image_regressor,
     train_regressor,
 )
-from .shepplogan_randers_training import (
+from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import (
     train_randers,
 )
-from .shepplogan_interpolation import evaluate_monotonicity
-from .shepplogan_extrapolation import (
+from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import evaluate_monotonicity
+from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
     evaluate_extrapolation,
+)
+from finsler_learning.shepplogan_pipeline.shepplogan_vae_stochastic import (
+    train_vae_log_var_decoder_branch,
 )
 
 
@@ -180,6 +183,22 @@ def main(cfg: SheppLoganPipelineConfig):
                 n_epochs=cfg.n_epochs_vae,
                 batch_size=cfg.b_size_vae,
                 label_noise=cfg.label_noise,
+                device=cfg.device,
+            )
+            LOGGER.info("Starting VAE log_var_branch training...")
+            train_vae_log_var_decoder_branch(
+                latent_dim=cfg.latent_dim,
+                export_path=cfg.export_path,
+                lr=cfg.lr_vae,
+                weight_decay=cfg.wd_vae,
+                beta=cfg.beta,
+                lbda=cfg.lbda,
+                lpip_weight=cfg.lpip_weight,
+                n_epochs=cfg.n_epochs_vae,
+                batch_size=cfg.b_size_vae,
+                label_noise=cfg.label_noise,
+                K=cfg.K_cometric,
+                kappa=1.0,
                 device=cfg.device,
             )
 
