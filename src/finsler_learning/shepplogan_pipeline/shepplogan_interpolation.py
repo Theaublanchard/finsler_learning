@@ -112,7 +112,7 @@ def evaluate_monotonicity(
     encoder.eval()
     decoder.eval()
 
-    solver_params = GeodesicSolverParams(n_pts=config.n_pts, device=device)
+    solver_params = GeodesicSolverParams(n_pts=config.n_pts, device=device, needs_spline=False)
     common_params = {
         "dataloader_train": shepp_logan_trainloader,
         "dataloader_test": shepp_logan_test_loader,
@@ -140,9 +140,7 @@ def evaluate_monotonicity(
 
     # First evaluate the fast cometrics using GEORCE
     for cometric_type, cometric_info in VALID_COMETRIC_TYPES.items():
-        if not cometric_info["is_fast"]:
-            continue
-        if cometric_info["requires_stochastic_vae"]:
+        if cometric_info["needs_spline"]:
             continue
         evaluate_mono_inter_setup(
             export_path,
@@ -160,12 +158,21 @@ def evaluate_monotonicity(
         )
 
     # Then those that can't use GEORCE because way to slow to compute the cometric
+    solver_params = GeodesicSolverParams(n_pts=config.n_pts, device=device, needs_spline=True)
+    common_params = {
+        "dataloader_train": shepp_logan_trainloader,
+        "dataloader_test": shepp_logan_test_loader,
+        "encoder": encoder,
+        "regressor": regressor,
+        "decoder": decoder,
+        "reference_dataloader_train": shepp_logan_trainloader_vae,
+        "device": device,
+        "export_geodesics": EXPORT_GEODESICS,
+        "solver_params": solver_params,
+    }
     for cometric_type, cometric_info in VALID_COMETRIC_TYPES.items():
-        if cometric_info["is_fast"]:
+        if not cometric_info["needs_spline"]:
             continue
-        # if cometric_info["requires_stochastic_vae"]:
-        #     continue
-        common_params["solver_params"]["use_georce"] = False
         evaluate_mono_inter_setup(
             export_path,
             latent_dim,

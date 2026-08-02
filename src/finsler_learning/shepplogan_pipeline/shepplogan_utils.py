@@ -15,6 +15,7 @@ from geodesic_toolbox import (
     IdentityCoMetric,
     LANDCometric,
     LANDRBFCometric,
+    PBIG_Cometric_Gaussian,
 )
 
 from finsler_learning import (
@@ -36,13 +37,15 @@ LOGGER = logging.getLogger()
 
 
 VALID_COMETRIC_TYPES = {
-    "euclidean": {"is_fast": True, "requires_stochastic_vae": False},
-    "land": {"is_fast": True, "requires_stochastic_vae": False},
-    "cov_centroids": {"is_fast": True, "requires_stochastic_vae": False},
-    "pullback_centroids": {"is_fast": False, "requires_stochastic_vae": False},
-    "warped_pullback": {"is_fast": False, "requires_stochastic_vae": False},
-    "land_rbf": {"is_fast": True, "requires_stochastic_vae": False},
-    "rbf_pullback": {"is_fast": False, "requires_stochastic_vae": True},
+    # "euclidean": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "land": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "cov_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "land_rbf": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
+    # # This uses just way too much memory to be practical for the shepplogan dataset, so we don't use it.
+    # "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
+    "pbig": {"needs_spline": True, "requires_stochastic_vae": True},
 }
 
 
@@ -256,6 +259,7 @@ def get_cometric_cov_centroids(
 
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
+    model.eval()
     z_all, _, log_var_all = embed_dataset(model.encoder, shepplogan_train_loader, device)
 
     log_var_all = log_var_all.clamp(min=-30, max=30)
@@ -285,6 +289,7 @@ def get_cometric_pullback_centroids(
     )
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
+    model.eval()
     centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
     pullback_cometric = PullBackCometric(
         diffeo=model.decoder,
@@ -331,6 +336,7 @@ def get_cometric_land(
 
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
+    model.eval()
     z_all, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
     cometric = LANDCometric(centroids=z_all, alpha=1, sigma=None, K=K)
     return cometric
@@ -353,6 +359,7 @@ def get_cometric_warped_pullback(
     )
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
+    model.eval()
     centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
 
     warped_decoder = WarpedDecoder(
@@ -387,6 +394,7 @@ def get_cometric_land_rbf(
     )
     model = get_models(latent_dim=latent_dim)
     try_load_pretrained_models(save_folder, model)
+    model.eval()
     centroids, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
 
     land_rbf_cometric = LANDRBFCometric(
@@ -420,6 +428,7 @@ def get_cometric_rbf_pullback(
         K=K,
         kappa=1.0,
     ).to(device)
+    model.eval()
 
     pb_decoder_mu = PullBackCometric(
         diffeo=model.decoder.mu_branch,
@@ -433,6 +442,33 @@ def get_cometric_rbf_pullback(
     )
 
     cometric = pb_decoder_mu + pb_decoder_logvar
+    return cometric.to(device)
+
+
+def get_cometric_pbig(
+    batch_size: int,
+    latent_dim: int,
+    save_folder: Path,
+    K: int,
+    device: torch.device = DEVICE,
+) -> PBIG_Cometric_Gaussian:
+    # Don't bother with all the params as it's going to load generated data anyway
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    shepplogan_train_loader, _ = get_shepplogan_dataloaders(
+        dataset_config=dl_config, export_path=save_folder
+    )
+    model = get_stochastic_vae_pretrained(
+        save_folder=save_folder,
+        latent_dim=latent_dim,
+        dataloader=shepplogan_train_loader,
+        K=K,
+        kappa=1.0,
+    ).to(device)
+    model.eval()
+
+    cometric = PBIG_Cometric_Gaussian(decoder=model.decoder.complete_forward, epsilon=1e-4, rho=1e-4)
     return cometric.to(device)
 
 
@@ -495,6 +531,14 @@ def get_cometric(
         )
     elif cometric_type == "rbf_pullback":
         cometric = get_cometric_rbf_pullback(
+            batch_size=batch_size,
+            latent_dim=latent_dim,
+            save_folder=export_path,
+            K=k,
+            device=device,
+        )
+    elif cometric_type == "pbig":
+        cometric = get_cometric_pbig(
             batch_size=batch_size,
             latent_dim=latent_dim,
             save_folder=export_path,

@@ -3,8 +3,8 @@ from geodesic_toolbox import (
     SolverGraphGEORCE,
     SolverGraphGEORCEFinsler,
     RandersMetrics,
-    SolverGraph,
-    SolverGraphFinsler,
+    SolverGraphSpline,
+    SolverGraphSplineFinsler,
 )
 from dataclasses import dataclass
 import torch
@@ -34,12 +34,12 @@ class GeodesicSolverParams:
     n_pts: int = 100
     n_neighbors: int = 8
     max_iter: int = 100
-    tol_solver: float = 1e-5
-    use_georce: bool = True
+    tol_solver: float = 1e-3
+    needs_spline: bool = False
     batch_size: int = 32
     max_data_count: int = 10_000
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    pbar: bool = True  # whether to show a progress bar during geodesic computation
 
 @dataclass
 class GeodesicEvalRiemannConfig:
@@ -166,7 +166,7 @@ def get_solver(
 
     embeds = embed_dataset(dataloader_train, encoder, device)
     if randers_metric is not None:
-        if config.use_georce:
+        if not config.needs_spline:
             solver = SolverGraphGEORCEFinsler(
                 finsler=randers_metric,
                 data=embeds,
@@ -179,8 +179,8 @@ def get_solver(
                 smooth_curve=False,
             )
         else:
-            solver = SolverGraphFinsler(
-                finsler_metric=randers_metric,
+            solver = SolverGraphSplineFinsler(
+                finsler=randers_metric,
                 data=embeds,
                 n_neighbors=config.n_neighbors,
                 batch_size=config.batch_size,
@@ -188,7 +188,7 @@ def get_solver(
                 T=config.n_pts,
             )
     else:
-        if config.use_georce:
+        if not config.needs_spline:
             solver = SolverGraphGEORCE(
                 cometric=cometric,
                 data=embeds,
@@ -201,7 +201,7 @@ def get_solver(
                 smooth_curve=False,
             )
         else:
-            solver = SolverGraph(
+            solver = SolverGraphSpline(
                 cometric=cometric,
                 data=embeds,
                 n_neighbors=config.n_neighbors,
