@@ -10,6 +10,7 @@ from .base_regressor_trainer import *
 from .base_vae_trainer import *
 from .base_wasserstein_learning import *
 from .base_warped_pullback import *
+from .base_pbig import *
 
 from .models import *
 from .dataset import *
