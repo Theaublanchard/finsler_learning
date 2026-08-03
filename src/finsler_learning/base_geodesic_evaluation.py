@@ -33,7 +33,9 @@ ALL_METRICS = {
 class GeodesicSolverParams:
     n_pts: int = 100
     n_neighbors: int = 8
-    max_iter: int = 100
+    max_iter_georce: int = 100
+    max_iter_spline: int = 100
+    lr_spline: float = 1e-3
     tol_solver: float = 1e-3
     needs_spline: bool = False
     batch_size: int = 32
@@ -171,7 +173,7 @@ def get_solver(
                 finsler=randers_metric,
                 data=embeds,
                 n_neighbors=config.n_neighbors,
-                max_iter=config.max_iter,
+                max_iter=config.max_iter_georce,
                 tol=config.tol_solver,
                 batch_size=config.batch_size,
                 max_data_count=config.max_data_count,
@@ -186,6 +188,8 @@ def get_solver(
                 batch_size=config.batch_size,
                 max_data_count=config.max_data_count,
                 T=config.n_pts,
+                lr=config.lr_spline,
+                n_iter=config.max_iter_spline,
             )
     else:
         if not config.needs_spline:
@@ -193,7 +197,7 @@ def get_solver(
                 cometric=cometric,
                 data=embeds,
                 n_neighbors=config.n_neighbors,
-                max_iter=config.max_iter,
+                max_iter=config.max_iter_georce,
                 tol=config.tol_solver,
                 batch_size=config.batch_size,
                 max_data_count=config.max_data_count,
@@ -208,6 +212,8 @@ def get_solver(
                 batch_size=config.batch_size,
                 max_data_count=config.max_data_count,
                 T=config.n_pts,
+                lr=config.lr_spline,
+                n_iter=config.max_iter_spline,
             )
     solver.to(config.device)
     return solver
