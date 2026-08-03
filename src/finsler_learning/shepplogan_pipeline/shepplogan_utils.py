@@ -37,14 +37,13 @@ LOGGER = logging.getLogger()
 
 
 VALID_COMETRIC_TYPES = {
-    # "euclidean": {"needs_spline": True, "requires_stochastic_vae": False},
-    # "land": {"needs_spline": True, "requires_stochastic_vae": False},
-    # "cov_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
-    # "land_rbf": {"needs_spline": True, "requires_stochastic_vae": False},
-    # "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
-    # "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
-    # # This uses just way too much memory to be practical for the shepplogan dataset, so we don't use it.
-    # "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
+    "euclidean": {"needs_spline": False, "requires_stochastic_vae": False},
+    "land": {"needs_spline": False, "requires_stochastic_vae": False},
+    "cov_centroids": {"needs_spline": False, "requires_stochastic_vae": False},
+    "land_rbf": {"needs_spline": False, "requires_stochastic_vae": False},
+    "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
+    "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
+    "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
     "pbig": {"needs_spline": True, "requires_stochastic_vae": True},
 }
 
@@ -272,6 +271,9 @@ def get_cometric_cov_centroids(
     return cometric
 
 
+# We can use no_grad because we
+# use finite differences to compute the cometric, so we don't need gradients.
+@torch.no_grad()
 def get_cometric_pullback_centroids(
     batch_size: int,
     latent_dim: int,
@@ -294,8 +296,8 @@ def get_cometric_pullback_centroids(
     pullback_cometric = PullBackCometric(
         diffeo=model.decoder,
         reg_coef=0.0,  # We want exact pullback cometric, no regularization
-        method="loop_jvp",  # We want exact pullback cometric, no finite difference
-        chunk_size=1,
+        method="finite_difference",  # We want exact pullback cometric, no finite difference
+        chunk_size=8,
     ).to(device)
     centroids_cometric = []
     pbar = tqdm(
@@ -338,7 +340,7 @@ def get_cometric_land(
     try_load_pretrained_models(save_folder, model)
     model.eval()
     z_all, _, _ = embed_dataset(model.encoder, shepplogan_train_loader, device)
-    cometric = LANDCometric(centroids=z_all, alpha=1, sigma=None, K=K)
+    cometric = LANDCometric(centroids=z_all, alpha=1, K=K)
     return cometric
 
 
@@ -371,7 +373,6 @@ def get_cometric_warped_pullback(
 
     pullback_cometric = PullBackCometric(
         diffeo=warped_decoder,
-        reg_coef=1e-3,
         method="finite_difference",
         chunk_size=1,
     ).to(device)
@@ -402,7 +403,6 @@ def get_cometric_land_rbf(
         K=K,
         kappa=1.0,
         learn_weights=True,
-        reg_coef=1e-3,
     ).to(device)
     return land_rbf_cometric
 
@@ -468,7 +468,9 @@ def get_cometric_pbig(
     ).to(device)
     model.eval()
 
-    cometric = PBIG_Cometric_Gaussian(decoder=model.decoder.complete_forward, epsilon=1e-4, rho=1e-4)
+    cometric = PBIG_Cometric_Gaussian(
+        decoder=model.decoder.complete_forward, epsilon=1e-4, rho=1e-4
+    )
     return cometric.to(device)
 
 
