@@ -31,6 +31,7 @@ class RandersLearningConfig:
     lr: float = 1e-3
     weight_decay: float = 1e-6
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    show_pbar: bool = True
 
 
 def train_loop_hyperplane(
@@ -42,12 +43,18 @@ def train_loop_hyperplane(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     cometric: CoMetric = IdentityCoMetric(),
+    show_pbar: bool = True,
 ) -> tuple[float, float]:
     omega.train()
     encoder.eval()
     loss_list_train_epoch_dir = []
     loss_list_train_epoch_amp = []
-    for i, data in enumerate(dataloader):
+    if show_pbar:
+        pbar = tqdm(dataloader, desc="Train epoch", unit="batch", total=len(dataloader),leave=False)
+    else:
+        pbar = dataloader
+    # for i, data in enumerate(dataloader):
+    for i, data in enumerate(pbar):
         optimizer.zero_grad()
         x, t = data
         x = x.to(device)
@@ -82,11 +89,16 @@ def test_loop_hyperplane(
     loss_amp: torch.nn.Module,
     device: torch.device,
     cometric: CoMetric = IdentityCoMetric(),
+    show_pbar: bool = True,
 ) -> tuple[float, float]:
     omega.eval()
     loss_list_test_epoch_dir = []
     loss_list_test_epoch_amp = []
-    for i, data in enumerate(dataloader):
+    if show_pbar:
+        pbar = tqdm(dataloader, desc="Test epoch", unit="batch", total=len(dataloader),leave=False)
+    else:
+        pbar = dataloader
+    for i, data in enumerate(pbar):
         x, t = data
         x = x.to(device)
         t = t.to(device)
@@ -203,6 +215,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             optimizer=optimizer,
             device=config.device,
             cometric=config.cometric,
+            show_pbar=config.show_pbar
         )
         pbar.set_postfix(
             {
@@ -221,6 +234,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             loss_amp=loss_amplitude,
             device=config.device,
             cometric=config.cometric,
+            show_pbar=config.show_pbar
         )
         pbar.set_postfix(
             {
@@ -309,6 +323,7 @@ def train_amplitude(
             optimizer=optimizer,
             device=config.device,
             cometric=config.cometric,
+            show_pbar=config.show_pbar
         )
         pbar.set_postfix(
             {
@@ -327,6 +342,7 @@ def train_amplitude(
             loss_amp=loss_amplitude,
             device=config.device,
             cometric=config.cometric,
+            show_pbar=config.show_pbar
         )
         pbar.set_postfix(
             {
