@@ -19,6 +19,7 @@ from finsler_learning.models import VAE
 
 from finsler_learning.base_geodesic_evaluation import (
     GeodesicEvalRiemannConfig,
+    GeodesicSolverParams,
 )
 from finsler_learning.base_quality_evaluation import (
     evaluate_dataloaders,
@@ -52,12 +53,15 @@ def vae_regressor(
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
 ):
-    dtype = next(vae.parameters()).dtype
+    vae.to(device)
+    regressor.to(device)
+    vae.eval()
+    regressor.eval()
     metric_base = MeanAbsolutePercentageError().to(device)
     metric_hat = MeanAbsolutePercentageError().to(device)
     for data in tqdm(dataloader, desc="Evaluating VAE regressor", leave=False):
         x, y = data
-        x = x.to(device).to(dtype)
+        x = x.to(device)
         y = y.to(device)
 
         x_hat, _, _ = vae(x)
@@ -85,7 +89,6 @@ def evaluate_vae_quality(
     try_load_pretrained_models(export_path, model)
     model = model.to(device)
     model.eval()
-    dtype = next(model.parameters()).dtype
     regressor = get_image_regressor()
     dl_config = DatasetConfig(
         batch_size=batch_size,
@@ -132,9 +135,10 @@ def evaluate_vae_quality(
         dataloader_test=shepp_logan_test_loader,
         encoder=encoder,
         cometric=IdentityCoMetric(),
+        solver_params=GeodesicSolverParams(batch_size=batch_size),
         regressor=regressor,
         decoder=decoder,
-        batch_size=batch_size,
+        device=device,
     )
     # Eval the reconstruction
     scores_ae = eval_ae_model(config_euclidean)
