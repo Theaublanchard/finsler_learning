@@ -474,12 +474,12 @@ def eval_ae_model(cfg: GeodesicEvalRiemannConfig):
 
     ae_dataloader_train = torch.utils.data.DataLoader(
         ae_dataset_train,
-        batch_size=cfg.batch_size,
+        batch_size=cfg.solver_params.batch_size,
         shuffle=True,
     )
     ae_dataloader_test = torch.utils.data.DataLoader(
         ae_dataset_test,
-        batch_size=cfg.batch_size,
+        batch_size=cfg.solver_params.batch_size,
         shuffle=True,
     )
     res = {}
@@ -553,7 +553,13 @@ def evaluate_framework(cfg: GeodesicEvalRiemannConfig):
     """
     if not (cfg.export_path / "latent_geodesics_train.pth").exists():
         LOGGER.info("Exporting latent geodesics for train and test sets...")
-        solver = get_solver(cfg)
+        solver = get_solver(
+            cfg.solver_params,
+            cometric=cfg.cometric,
+            dataloader_train=cfg.dataloader_train,
+            encoder=cfg.encoder,
+            device=cfg.device,
+        )
         export_latent_geodesics(cfg, cfg.dataloader_train, solver, train=True)
         export_latent_geodesics(cfg, cfg.dataloader_train, solver, train=False)
 
