@@ -17,6 +17,35 @@ from geodesic_toolbox import CoMetric
 from monai.networks.blocks import Convolution
 import torch.nn as nn
 
+
+def cdist(x1: torch.Tensor, x2: torch.Tensor, p: float = 2.0) -> torch.Tensor:
+    """
+    Computes the pairwise distance between two sets of points.
+    This implementation is a workaround for the fact that torch.cdist does not support forward AD.
+    dst_mat[i, j] = ||x1[i] - x2[j]||_p = sqrt( ||x1[i]||_p^2 + ||x2[j]||_p^2 - 2 * <x1[i], x2[j]> )
+
+    Parameters:
+    ----------
+    x1 : torch.Tensor (N, d)
+        The first set of points.
+    x2 : torch.Tensor (M, d)
+        The second set of points.
+    p : float
+        The norm degree. Default is 2 (Euclidean distance).
+
+    Returns:
+    -------
+    dst_mat : torch.Tensor (N, M)
+        The pairwise distance matrix.
+    """
+    # diff = x1.unsqueeze(1) - x2.unsqueeze(0) # (N, M, d)
+    # dst_mat = torch.norm(diff, p=p, dim=-1)
+    x1_norm = torch.norm(x1, p=p, dim=-1, keepdim=True) ** 2  # (N, 1)
+    x2_norm = torch.norm(x2, p=p, dim=-1, keepdim=True) ** 2  # (M, 1)
+    inner_product = torch.matmul(x1, x2.T)  # (N, M)
+    dst_mat = (x1_norm + x2_norm.T - 2 * inner_product).clamp_min(0.0).sqrt()  # (N, M)
+    return dst_mat
+
 ############################
 # Base models
 ############################
@@ -742,7 +771,8 @@ class RBFLayer(nn.Module):
         K : int
             The number of centroids to select. If K=-1, use all centroids.
         """
-        dst_mat = torch.cdist(self.centroids, self.centroids, p=2).sqrt().cpu().numpy()
+        # dst_mat = torch.cdist(self.centroids, self.centroids, p=2).sqrt().cpu().numpy()
+        dst_mat = cdist(self.centroids, self.centroids, p=2).cpu().numpy()
         kmedoids_model = kmedoids.KMedoids(
             n_clusters=K, metric="precomputed", random_state=1312
         )
@@ -819,12 +849,14 @@ class RBFLayer(nn.Module):
         K = self.centroids.shape[0]
 
         # Assign each sample to the closest centroid.
-        dst_data = torch.cdist(self.centroids, data, p=2)  # (K,N)
+        # dst_data = torch.cdist(self.centroids, data, p=2)  # (K,N)
+        dst_data = cdist(self.centroids, data, p=2)  # (K,N)
         closest_centroid = dst_data.argmin(dim=0)  # (N,)
 
         # Robust fallback scale from centroid geometry.
         # Use a higher-order neighbor to avoid over-peaked kernels when K is large.
-        dst_centroids = torch.cdist(self.centroids, self.centroids, p=2)
+        # dst_centroids = torch.cdist(self.centroids, self.centroids, p=2)
+        dst_centroids = cdist(self.centroids, self.centroids, p=2)
         dst_centroids.fill_diagonal_(float("inf"))
         sorted_dst, _ = torch.sort(dst_centroids, dim=1)
         rank = min(max(neighbor_rank - 1, 0), max(K - 2, 0))
@@ -843,7 +875,8 @@ class RBFLayer(nn.Module):
             cluster_points = data[closest_centroid == k]  # (Card(C_k),d)
             if cluster_points.shape[0] > 0:
                 c_k = self.centroids[k : k + 1]
-                dist2 = torch.cdist(c_k, cluster_points, p=2).pow(2)
+                # dist2 = torch.cdist(c_k, cluster_points, p=2).pow(2)
+                dist2 = cdist(c_k, cluster_points, p=2).pow(2)
                 local_scale2[k] = dist2.mean().clamp_min(eps)
 
         # Blend local scale with centroid-neighborhood scale.
@@ -880,7 +913,8 @@ class RBFLayer(nn.Module):
         rbf_output : Tensor (batch_size, K)
             The output tensor after applying the RBF transformation.
         """
-        dists_squared = torch.cdist(x, self.centroids, p=2).pow(2)  # (batch_size, K)
+        # dists_squared = torch.cdist(x, self.centroids, p=2).pow(2)  # (batch_size, K)
+        dists_squared = cdist(x, self.centroids, p=2).pow(2)  # (batch_size, K)
         rbf_output = torch.exp(-dists_squared / (2 * self.tau_squared))
         return rbf_output
 
