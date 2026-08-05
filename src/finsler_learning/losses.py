@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 from pytorch_msssim import MS_SSIM
 from torchmetrics import MeanMetric
+from tqdm import tqdm
 from geodesic_toolbox import CoMetric, IdentityCoMetric
 from einops import rearrange, repeat
 
@@ -84,29 +85,39 @@ def margin_loss(
     omega_i_ = rearrange(omega_i_, "b K d -> (b K) d")
     p_i_ = rearrange(p_i_, "b K d -> (b K) d")
     delta_p_ = rearrange(delta_p, "b K d -> (b K) d")
+    y_ij_ = rearrange(y_ij, "b K -> (b K)")
 
-    # logits = cometric.dot(p_i_, omega_i_, delta_p_)
-    # logits = rearrange(logits, "(b K) -> b K", b=omega_i.shape[0])
-    # This can be too costly to do at once. We thus do it ugly with for loops.
-    # This way the batch size is easier to control
-    logits = []
+    # The vectorized dot path can be prohibitively large for pullback cometrics.
+    # Stream the flattened pairwise inputs to the cometric in small chunks so each
+    # cometric.dot call only sees a bounded number of samples.
     b = omega_i.shape[0]
-    bk = delta_p_.shape[0]
-    for i in range(0, bk, b):
-        end = min(i + b, bk)
-        logits.append(cometric.dot(p_i_[i:end], omega_i_[i:end], delta_p_[i:end]))
-    logits = torch.cat(logits, dim=0)
-    logits = rearrange(logits, "(b K) -> b K", b=b)
+    k = delta_p.shape[1]
+    chunk_size = 128
 
-    preloss = logits * y_ij  # (b,K)
-    loss = (1 - margin - preloss).clamp(0)
+    loss_sum = torch.zeros(b, device=omega_i.device, dtype=omega_i.dtype)
+    acc_sum = torch.zeros(b, device=omega_i.device, dtype=omega_i.dtype)
+
+    total_pairs = b * k
+    for start in tqdm(range(0, total_pairs, chunk_size), desc="Computing margin loss",leave=False):
+        end = min(start + chunk_size, total_pairs)
+        omega_chunk = omega_i_[start:end]
+        p_chunk = p_i_[start:end]
+        v_chunk = delta_p_[start:end]
+        y_chunk = y_ij_[start:end]
+
+        logits_chunk = cometric.dot(p_chunk, omega_chunk, v_chunk)
+        preloss_chunk = logits_chunk * y_chunk
+        loss_chunk = (1 - margin - preloss_chunk).clamp(0)
+
+        loss_sum += loss_chunk.sum(dim=0)
+        acc_sum += (preloss_chunk >= 0).to(preloss_chunk.dtype).sum(dim=0)
 
     if reduce == "mean":
-        loss = loss.mean(1)
-        acc = (preloss >= 0).to(preloss.dtype).mean(1)  # (b,)
+        loss = loss_sum / k
+        acc = acc_sum / k  # (b,)
     elif reduce == "sum":
-        loss = loss.sum(1)
-        acc = (preloss > 0).to(preloss.dtype).sum(1)  # (b,)
+        loss = loss_sum
+        acc = acc_sum  # (b,)
 
     if not return_acc:
         return loss.mean()
@@ -134,7 +145,7 @@ def KNN(X_1: Tensor, X_2: Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
     knn_idx : torch.Tensor (b,k)
         The indices of the nearest neighbors of X_1 in X_2.
     """
-    dists = torch.cdist(X_1, X_2)
+    dists = torch.cdist(X_1.detach(), X_2.detach())
     knn_idx = torch.argsort(dists, dim=1)[:, :k]
     knn = X_2[knn_idx]
     return knn, knn_idx

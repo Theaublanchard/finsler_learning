@@ -34,6 +34,14 @@ class RandersLearningConfig:
     show_pbar: bool = True
 
 
+def freeze_module(module: torch.nn.Module) -> torch.nn.Module:
+    """Freeze a module so it can be used as a fixed feature provider."""
+    module.eval()
+    for param in module.parameters():
+        param.requires_grad_(False)
+    return module
+
+
 def train_loop_hyperplane(
     dataloader: DataLoader,
     encoder: BaseEncoder,
@@ -59,7 +67,9 @@ def train_loop_hyperplane(
         x, t = data
         x = x.to(device)
         t = t.to(device)
-        z, log_var = encoder(x)
+        with torch.no_grad():
+            z, log_var = encoder(x)
+        z = z.detach()
 
         w = omega.direction(z)
         loss_direction = loss_dir(w, z, t, cometric=cometric)
@@ -179,8 +189,12 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
-    encoder = config.encoder.to(config.device)
+    encoder = freeze_module(config.encoder.to(config.device))
     omega = config.omega.to(config.device)
+    if isinstance(config.cometric, torch.nn.Module):
+        cometric = freeze_module(config.cometric.to(config.device))
+    else:
+        cometric = config.cometric
     optimizer = torch.optim.Adam(
         omega.direction.parameters(),
         weight_decay=config.weight_decay,
@@ -214,7 +228,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             loss_amp=loss_amplitude,
             optimizer=optimizer,
             device=config.device,
-            cometric=config.cometric,
+            cometric=cometric,
             show_pbar=config.show_pbar
         )
         pbar.set_postfix(
@@ -233,7 +247,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             loss_dir=config.loss_fn,
             loss_amp=loss_amplitude,
             device=config.device,
-            cometric=config.cometric,
+            cometric=cometric,
             show_pbar=config.show_pbar
         )
         pbar.set_postfix(
@@ -287,8 +301,12 @@ def train_amplitude(
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
-    encoder = config.encoder.to(config.device)
+    encoder = freeze_module(config.encoder.to(config.device))
     omega = config.omega.to(config.device)
+    if isinstance(config.cometric, torch.nn.Module):
+        cometric = freeze_module(config.cometric.to(config.device))
+    else:
+        cometric = config.cometric
     optimizer = torch.optim.Adam(
         [
             {"params": omega.amplitude.parameters(), "lr": config.lr / 2},
@@ -322,7 +340,7 @@ def train_amplitude(
             loss_amp=loss_amplitude,
             optimizer=optimizer,
             device=config.device,
-            cometric=config.cometric,
+            cometric=cometric,
             show_pbar=config.show_pbar
         )
         pbar.set_postfix(
@@ -341,7 +359,7 @@ def train_amplitude(
             loss_dir=config.loss_fn,
             loss_amp=loss_amplitude,
             device=config.device,
-            cometric=config.cometric,
+            cometric=cometric,
             show_pbar=config.show_pbar
         )
         pbar.set_postfix(
@@ -382,6 +400,7 @@ def train_amplitude(
     )
 
 
+@torch.no_grad()
 def get_accuracy_hyperplane(dataloader: DataLoader, config: RandersLearningConfig) -> float:
     """
     Get the accuracy of the hyperplane model for the Randers metric.
@@ -392,6 +411,7 @@ def get_accuracy_hyperplane(dataloader: DataLoader, config: RandersLearningConfi
         x = x.to(config.device)
         t = t.to(config.device)
         z, _ = config.encoder(x)
+        z = z.detach()
 
         w = config.omega.direction(z)
         _ = config.loss_fn(w, z, t)
