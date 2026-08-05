@@ -245,8 +245,8 @@ def main(cfg: SheppLoganPipelineConfig):
                     k=cfg.K_cometric,
                 )
 
-        if cfg.eval_monotonicity or cfg.eval_quality:
-            LOGGER.info("Evaluating monotonicity and/or quality...")
+        if cfg.eval_interpolation or cfg.eval_quality_interpolation:
+            LOGGER.info("Evaluating interpolation and/or quality...")
             evaluate_monotonicity(
                 config=cfg,
                 export_path=cfg.export_path,
@@ -256,11 +256,11 @@ def main(cfg: SheppLoganPipelineConfig):
                 omega_strength=cfg.omega_strength,
                 use_dummy_accuracy=cfg.use_dummy_accuracy,
                 k=cfg.K_cometric,
-                eval_quality=cfg.eval_quality,
-                eval_monotonicity=cfg.eval_monotonicity,
+                eval_quality=cfg.eval_quality_interpolation,
+                eval_monotonicity=cfg.eval_interpolation,
             )
 
-        if cfg.eval_extrapolation:
+        if cfg.eval_extrapolation or cfg.eval_quality_extrapolation:
             LOGGER.info("Evaluating extrapolation...")
             evaluate_extrapolation(
                 export_path=cfg.export_path,
@@ -273,7 +273,8 @@ def main(cfg: SheppLoganPipelineConfig):
                 eta=cfg.eta,
                 alpha=cfg.alpha,
                 ema_moment=cfg.ema_moment,
-                eval_quality=cfg.eval_quality,
+                eval_quality=cfg.eval_quality_extrapolation,
+                eval_extrapolation=cfg.eval_extrapolation,
                 no_symmetric=cfg.no_symmetric,
                 n_pts=cfg.n_pts,
             )
@@ -412,17 +413,24 @@ def add_control_arguments(parser: ArgumentParser):
     )
     parser.add_argument("--skip_randers", action="store_true", help="Skip Randers training")
     parser.add_argument(
-        "--eval_monotonicity", action="store_true", help="Evaluate monotonicity"
+        "--eval_interpolation",
+        action="store_true",
+        help="Evaluate interpolation",
     )
     parser.add_argument(
-        "--eval_quality",
+        "--eval_quality_interpolation",
         action="store_true",
-        help="Evaluate quality metrics during monotonicity eval",
+        help="Evaluate quality metrics during interpolation",
+    )
+    parser.add_argument(
+        "--eval_quality_extrapolation",
+        action="store_true",
+        help="Evaluate quality metrics during extrapolation",
     )
     parser.add_argument(
         "--eval_extrapolation",
         action="store_true",
-        help="Evaluate extrapolation capabilities of the metrics",
+        help="Evaluate extrapolation",
     )
     parser.add_argument(
         "--eval_regressor",
@@ -495,14 +503,15 @@ def parse_args() -> SheppLoganPipelineConfig:
         skip_regressor=args.skip_regressor,
         skip_vae=args.skip_vae,
         skip_randers=args.skip_randers,
-        eval_monotonicity=args.eval_monotonicity,
         # Global parameters
+        eval_interpolation=args.eval_interpolation,
+        eval_extrapolation=args.eval_extrapolation,
         export_path=args.export_path,
         latent_dim=args.latent_dim,
         label_noise=args.label_noise,
         device=args.device,
-        eval_quality=args.eval_quality,
-        eval_extrapolation=args.eval_extrapolation,
+        eval_quality_interpolation=args.eval_quality_interpolation,
+        eval_quality_extrapolation=args.eval_quality_extrapolation,
         eval_regressor=args.eval_regressor,
         no_symmetric=args.no_symmetric,
     )

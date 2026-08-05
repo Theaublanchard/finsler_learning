@@ -35,7 +35,6 @@ N_SAMPLES_TEST = 500
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LOGGER = logging.getLogger()
 
-
 VALID_COMETRIC_TYPES = {
     "euclidean": {"needs_spline": False, "requires_stochastic_vae": False},
     "land": {"needs_spline": False, "requires_stochastic_vae": False},
@@ -86,7 +85,8 @@ class SheppLoganPipelineConfig:
     skip_regressor: bool
     skip_vae: bool
     skip_randers: bool
-    eval_monotonicity: bool
+    eval_interpolation: bool
+    eval_extrapolation: bool
 
     # Global parameters
     export_path: Path
@@ -95,8 +95,8 @@ class SheppLoganPipelineConfig:
     K_cometric: int = None
     IMG_SIZE: int = IMG_SIZE
     device: torch.device = DEVICE
-    eval_quality: bool = True
-    eval_extrapolation: bool = False
+    eval_quality_interpolation: bool = True
+    eval_quality_extrapolation: bool = False
     eval_regressor: bool = False
     no_symmetric: bool = False
 

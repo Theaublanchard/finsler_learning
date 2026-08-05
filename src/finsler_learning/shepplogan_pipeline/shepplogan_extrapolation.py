@@ -27,6 +27,7 @@ def evaluate_extrapolation(
     alpha: float = 1.0,
     ema_moment: float = 0.9,
     eval_quality: bool = False,
+    eval_extrapolation: bool = True,
     no_symmetric: bool = False,
     n_pts: int = 100,
 ) -> None:
@@ -96,7 +97,8 @@ def evaluate_extrapolation(
                 cometric=cometric,
                 **common_params,
             )
-            extrapolation_evaluation(config_riemann)
+            if eval_extrapolation:
+                extrapolation_evaluation(config_riemann)
             if eval_quality:
                 evaluate_extrapolated_framework(config_riemann)
 
@@ -117,7 +119,8 @@ def evaluate_extrapolation(
             eta=eta,
             **common_params,
         )
-        extrapolation_evaluation(config_finsler)
+        if eval_extrapolation:
+            extrapolation_evaluation(config_finsler)
         if eval_quality:
             evaluate_extrapolated_framework(config_finsler)
         del config_finsler
