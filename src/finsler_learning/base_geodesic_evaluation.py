@@ -34,8 +34,8 @@ class GeodesicSolverParams:
     n_pts: int = 100
     n_neighbors: int = 8
     max_iter_georce: int = 100
-    max_iter_spline: int = 500
-    lr_spline: float = 1e-2
+    max_iter_spline: int = 100
+    lr_spline: float = 1e-3
     tol_solver: float = 1e-3
     needs_spline: bool = False
     batch_size: int = 32
@@ -489,8 +489,6 @@ def compute_geodesic_stats(
         t_pred_test = config.post_process_label(
             latent_traj_test, t_pred_test, config.latent_classifier
         )
-    # Export the time
-    torch.save(t_pred_test, config.export_path / "geo_t_pred_test.pth")
 
     LOGGER.info("Computing metrics from retrieved time")
     metrics_list_test = {name: [] for name in ALL_METRICS}
