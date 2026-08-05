@@ -213,19 +213,18 @@ class RandomExpMapRiemann(torch.nn.Module):
         else:
             pbar = range(self.T - 1)
         v0 = self.sample_initial_speed(q0)
-        p0 = self.legendre_transform(q0, v0)
         for _ in pbar:
-            v0 = self.sample_initial_speed(q0)
             if self.moving_avg_momentum is not None:
-                p0_ = self.legendre_transform(q0, v0)
-                p0 = self.moving_avg_momentum * p0 + (1 - self.moving_avg_momentum) * p0_
+                v0_ = self.sample_initial_speed(q0)
+                v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
             else:
-                p0 = self.legendre_transform(q0, v0)
+                v0 = self.sample_initial_speed(q0)
+            p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
 
-            q0, p0 = self.shooter.forward(q0, p0, 2, return_traj=False)
+            q0, p0 = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
@@ -418,20 +417,18 @@ class RandomExpMapRanders(torch.nn.Module):
             pbar = range(self.T - 1)
 
         v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
-        p0 = self.legendre_transform(q0, v0)
-
         for _ in pbar:
-            v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
             if self.moving_avg_momentum is not None:
-                p0_ = self.legendre_transform(q0, v0)
-                p0 = self.moving_avg_momentum * p0 + (1 - self.moving_avg_momentum) * p0_
+                v0_ = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+                v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
             else:
-                p0 = self.legendre_transform(q0, v0)
+                v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+            p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
 
-            q0, p0 = self.shooter.forward(q0, p0, 2, return_traj=False)
+            q0, p0 = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
