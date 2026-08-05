@@ -551,39 +551,12 @@ def evaluate_framework(cfg: GeodesicEvalRiemannConfig):
     Evaluate a framework by first retrieving the latent geodesics. Then decoding them.
     And finally evaluating the quality of the decoded geodesics using the dataloaders and metric evaluators.
     """
-    if not (cfg.export_path / "latent_geodesics_train.pth").exists():
-        LOGGER.info("Exporting latent geodesics for train and test sets...")
-        solver = get_solver(
-            cfg.solver_params,
-            cometric=cfg.cometric,
-            dataloader_train=cfg.dataloader_train,
-            encoder=cfg.encoder,
-            device=cfg.device,
-        )
-        export_latent_geodesics(cfg, cfg.dataloader_train, solver, train=True)
-        export_latent_geodesics(cfg, cfg.dataloader_train, solver, train=False)
-
     start_time = datetime.now()
-
-    inter_dataset_train = InterpolantsDataset(cfg.decoder, cfg.export_path, train=True)
     inter_dataset_test = InterpolantsDataset(cfg.decoder, cfg.export_path, train=False)
-
-    inter_dataloader_train = torch.utils.data.DataLoader(
-        inter_dataset_train,
-        batch_size=cfg.solver_params.batch_size,
-        shuffle=True,
-    )
     inter_dataloader_test = torch.utils.data.DataLoader(
         inter_dataset_test,
         batch_size=cfg.solver_params.batch_size,
         shuffle=True,
-    )
-
-    scores_train = evaluate_dataloaders(
-        dataloader_reference=cfg.reference_dataloader_train,
-        dataloader_generated=inter_dataloader_train,
-        device=cfg.device,
-        train=True,
     )
     scores_test = evaluate_dataloaders(
         dataloader_reference=cfg.reference_dataloader_train,
@@ -591,24 +564,22 @@ def evaluate_framework(cfg: GeodesicEvalRiemannConfig):
         device=cfg.device,
         train=False,
     )
-    scores = {**scores_train, **scores_test}
-    export_metrics_results(cfg, scores)
+    export_metrics_results(cfg, scores_test)
 
     end_time = datetime.now()
     elapsed_time = end_time - start_time
     LOGGER.info(
         f"Image quality evaluation completed in {elapsed_time} for config {cfg.export_path}"
     )
-    return scores
+    return scores_test
 
 
 def check_extrapolation_exists(cfg: ExtrapolationEvalRiemannConfig) -> bool:
     """
     Check if the extrapolated geodesics already exist in the export path.
     """
-    train_path = cfg.export_path / "extrapolated_traj_train.pth"
     test_path = cfg.export_path / "extrapolated_traj_test.pth"
-    return train_path.exists() and test_path.exists()
+    return test_path.exists()
 
 
 def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
@@ -629,13 +600,6 @@ def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
     t_ranges = [(0, T // 4), (T // 4, T // 2), (T // 2, 3 * T // 4), (3 * T // 4, T)]
     for t_range in t_ranges:
         LOGGER.info(f"Evaluating extrapolated trajectories for t range {t_range}...")
-        inter_dataset_train = InterpolantsDataset(
-            cfg.decoder,
-            cfg.export_path,
-            train=True,
-            t_range=t_range,
-            latent_name="extrapolated_traj",
-        )
         inter_dataset_test = InterpolantsDataset(
             cfg.decoder,
             cfg.export_path,
@@ -643,23 +607,10 @@ def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
             t_range=t_range,
             latent_name="extrapolated_traj",
         )
-
-        inter_dataloader_train = torch.utils.data.DataLoader(
-            inter_dataset_train,
-            batch_size=cfg.solver_params.batch_size,
-            shuffle=True,
-        )
         inter_dataloader_test = torch.utils.data.DataLoader(
             inter_dataset_test,
-            batch_size=cfg.solver_params.batch_size,
+            batch_size=cfg.batch_size,
             shuffle=True,
-        )
-
-        scores_train = evaluate_dataloaders(
-            dataloader_reference=cfg.reference_dataloader_train,
-            dataloader_generated=inter_dataloader_train,
-            device=cfg.device,
-            train=True,
         )
         scores_test = evaluate_dataloaders(
             dataloader_reference=cfg.reference_dataloader_train,
@@ -667,12 +618,11 @@ def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
             device=cfg.device,
             train=False,
         )
-        scores = {**scores_train, **scores_test}
-        export_metrics_results(cfg, scores, t_range=t_range)
+        export_metrics_results(cfg, scores_test, t_range=t_range)
 
     end_time = datetime.now()
     elapsed_time = end_time - start_time
     LOGGER.info(
         f"Image quality evaluation completed in {elapsed_time} for config {cfg.export_path}"
     )
-    return scores
+    return scores_test
