@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from geodesic_toolbox import CoMetric, IdentityCoMetric
 from .losses import GroupedMarginLoss
-from .models import BaseEncoder, Omega
+from .models import BaseEncoder, Omega, DummyAccuracyPredictor
 
 
 @dataclass
@@ -58,7 +58,9 @@ def train_loop_hyperplane(
     loss_list_train_epoch_dir = []
     loss_list_train_epoch_amp = []
     if show_pbar:
-        pbar = tqdm(dataloader, desc="Train epoch", unit="batch", total=len(dataloader),leave=False)
+        pbar = tqdm(
+            dataloader, desc="Train epoch", unit="batch", total=len(dataloader), leave=False
+        )
     else:
         pbar = dataloader
     # for i, data in enumerate(dataloader):
@@ -105,7 +107,9 @@ def test_loop_hyperplane(
     loss_list_test_epoch_dir = []
     loss_list_test_epoch_amp = []
     if show_pbar:
-        pbar = tqdm(dataloader, desc="Test epoch", unit="batch", total=len(dataloader),leave=False)
+        pbar = tqdm(
+            dataloader, desc="Test epoch", unit="batch", total=len(dataloader), leave=False
+        )
     else:
         pbar = dataloader
     for i, data in enumerate(pbar):
@@ -229,7 +233,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             optimizer=optimizer,
             device=config.device,
             cometric=cometric,
-            show_pbar=config.show_pbar
+            show_pbar=config.show_pbar,
         )
         pbar.set_postfix(
             {
@@ -248,7 +252,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
             loss_amp=loss_amplitude,
             device=config.device,
             cometric=cometric,
-            show_pbar=config.show_pbar
+            show_pbar=config.show_pbar,
         )
         pbar.set_postfix(
             {
@@ -341,7 +345,7 @@ def train_amplitude(
             optimizer=optimizer,
             device=config.device,
             cometric=cometric,
-            show_pbar=config.show_pbar
+            show_pbar=config.show_pbar,
         )
         pbar.set_postfix(
             {
@@ -360,7 +364,7 @@ def train_amplitude(
             loss_amp=loss_amplitude,
             device=config.device,
             cometric=cometric,
-            show_pbar=config.show_pbar
+            show_pbar=config.show_pbar,
         )
         pbar.set_postfix(
             {
@@ -474,9 +478,11 @@ def train_hyperplane(config: RandersLearningConfig) -> tuple[Omega, list, list, 
     Train a hyperplane model for the Randers metric.
     """
     _, train_loss_dir_list, test_loss_dir_list, _, _ = train_direction(config=config)
-    train_amplitude(
-        config=config,
-        train_loss_dir_list=train_loss_dir_list,
-        test_loss_dir_list=test_loss_dir_list,
-    )
+
+    if not isinstance(config.omega.amplitude, DummyAccuracyPredictor):
+        train_amplitude(
+            config=config,
+            train_loss_dir_list=train_loss_dir_list,
+            test_loss_dir_list=test_loss_dir_list,
+        )
     assess_hyperplane_precision(config=config)
