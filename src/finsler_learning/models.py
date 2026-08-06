@@ -302,7 +302,7 @@ class Encoder_MLP(BaseEncoder):
                 self.layers.append(nn.Linear(self.input_dim_, hidden_dim))
             else:
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
-            self.layers.append(nn.ReLU())
+            self.layers.append(nn.SiLU())
         self.layers = nn.Sequential(*self.layers)
 
         self.mu = nn.Linear(hidden_layers[-1], self.latent_dim)
@@ -332,7 +332,7 @@ class Decoder_MLP(BaseDecoder):
                 self.layers.append(nn.Linear(latent_dim, hidden_dim))
             else:
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
-            self.layers.append(nn.ReLU())
+            self.layers.append(nn.SiLU())
         self.layers.append(nn.Linear(hidden_layers[-1], self.input_dim_flat))
         self.mu_branch = nn.Sequential(*self.mu_branch)
 
@@ -372,7 +372,7 @@ class StochasticDecoder_MLP(BaseStochasticDecoder):
                 self.layers.append(nn.Linear(latent_dim, hidden_dim))
             else:
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
-            self.layers.append(nn.ReLU())
+            self.layers.append(nn.SiLU())
         self.mu = nn.Linear(hidden_layers[-1], self.input_dim_flat)
         self.std = nn.Linear(hidden_layers[-1], self.input_dim_flat)
 
@@ -524,13 +524,13 @@ class SmallConvVAE(BaseVAE):
 # Conv VAE models for images of shape (256, 256)
 ########################
 class ConvBlock(nn.Module):
-    """Conv2d - InstanceNorm - PReLU"""
+    """Conv2d - InstanceNorm - SiLU"""
 
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.norm = nn.InstanceNorm2d(out_channels, affine=True)
-        self.activation = nn.PReLU(num_parameters=1)
+        self.activation = nn.SiLU()
 
     def forward(self, x):
         x = self.conv(x)
@@ -540,7 +540,7 @@ class ConvBlock(nn.Module):
 
 
 class ConvTransposeBlock(nn.Module):
-    """ConvTranspose2d - InstanceNorm - PReLU"""
+    """ConvTranspose2d - InstanceNorm - SiLU"""
 
     def __init__(
         self, in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1
@@ -550,7 +550,7 @@ class ConvTransposeBlock(nn.Module):
             in_channels, out_channels, kernel_size, stride, padding, output_padding
         )
         self.norm = nn.InstanceNorm2d(out_channels, affine=True)
-        self.activation = nn.PReLU(num_parameters=1)
+        self.activation = nn.SiLU()
 
     def forward(self, x):
         x = self.conv_transpose(x)
@@ -560,7 +560,7 @@ class ConvTransposeBlock(nn.Module):
 
 
 class UpsampleBlock(nn.Module):
-    """Upsample - Conv2d - InstanceNorm - PReLU"""
+    """Upsample - Conv2d - InstanceNorm - SiLU"""
 
     def __init__(
         self,
@@ -580,7 +580,7 @@ class UpsampleBlock(nn.Module):
         )
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding)
         self.norm = nn.InstanceNorm2d(out_channels, affine=affine)
-        self.activation = nn.PReLU(num_parameters=1)
+        self.activation = nn.SiLU()
 
     def forward(self, x):
         x = self.upsample(x)
@@ -1041,11 +1041,11 @@ class ResBlock3D(nn.Module):
         self.block = nn.Sequential(
             nn.Conv3d(channels, channels, kernel_size=kernel_size, padding=1, bias=False),
             nn.BatchNorm3d(channels),
-            nn.ReLU(inplace=True),
+            nn.SiLU(inplace=True),
             nn.Conv3d(channels, channels, kernel_size=kernel_size, padding=1, bias=False),
             nn.BatchNorm3d(channels),
         )
-        self.act = nn.ReLU(inplace=True)
+        self.act = nn.SiLU(inplace=True)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.act(x + self.block(x))
@@ -1107,7 +1107,7 @@ class Encoder3D(BaseEncoder):
                 nn.Conv3d(c_in, c_out, kernel_size=3, stride=s, padding=1, bias=False),
                 # nn.BatchNorm3d(c_out),
                 nn.InstanceNorm3d(c_out, affine=True),
-                nn.ReLU(inplace=True),
+                nn.SiLU(inplace=True),
             ]
             if use_resblocks:
                 layers.append(ResBlock3D(c_out, kernel_size=3))
@@ -1127,13 +1127,13 @@ class Encoder3D(BaseEncoder):
         # self.mu_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
-        #     nn.ReLU(inplace=True),
+        #     nn.SiLU(inplace=True),
         #     nn.Linear(self.flat_dim // 2, latent_dim),
         # )
         # self.log_var_branch = nn.Sequential(
         #     nn.Flatten(),
         #     nn.Linear(self.flat_dim, self.flat_dim // 2),
-        #     nn.ReLU(inplace=True),
+        #     nn.SiLU(inplace=True),
         #     nn.Linear(self.flat_dim // 2, latent_dim),
         # )
 
@@ -1204,7 +1204,7 @@ class Decoder3D(BaseDecoder):
                 nn.Conv3d(c_in, c_out, kernel_size=3, stride=1, padding=1, bias=False),
                 # nn.BatchNorm3d(c_out),
                 nn.InstanceNorm3d(c_out, affine=True),
-                nn.ReLU(inplace=True),
+                nn.SiLU(inplace=True),
             ]
             if use_resblocks:
                 layers.append(ResBlock3D(c_out, kernel_size=3))
@@ -1327,7 +1327,7 @@ class HyperPlanPredictor(nn.Module):
                 self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
             else:
                 self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
-            self.layers.add_module(f"relu_{i}", nn.ReLU())
+            self.layers.add_module(f"silu_{i}", nn.SiLU())
         self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], self.latent_dim))
 
     def forward(self, x):
@@ -1364,7 +1364,7 @@ class AccuracyPredictor(nn.Module):
                 self.layers.add_module(f"linear_{i}", nn.Linear(self.latent_dim, dim))
             else:
                 self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
-            self.layers.add_module(f"relu_{i}", nn.ReLU())
+            self.layers.add_module(f"silu_{i}", nn.SiLU())
         self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], 1))
         self.layers.add_module("sigmoid", nn.Sigmoid())
 
@@ -1502,7 +1502,7 @@ class LatentClassifier(nn.Module):
             if self.dropout is not None:
                 self.fc.add_module(f"dropout_{i}", nn.Dropout(p=self.dropout))
 
-            self.fc.add_module(f"relu_{i}", nn.ReLU())
+            self.fc.add_module(f"silu_{i}", nn.SiLU())
         self.fc.add_module(f"linear_out", nn.Linear(hidden_dim[-1], self.num_classes))
 
     def forward(self, z: Tensor):
