@@ -135,11 +135,12 @@ def filter_traj_nan(traj: torch.Tensor) -> torch.Tensor | None:
     torch.Tensor (B',T,d) | None
         The filtered trajectory or None if all values are NaN.
     """
+    B, T, d = traj.shape
     if torch.isnan(traj).any():
         nan_batches = traj.isnan().any(dim=(1, 2))
         traj = traj[~nan_batches]
         logger.warning(
-            f"Removed {nan_batches.sum().item()} trajectories containing NaN values."
+            f"Removed {nan_batches.sum().item()}/{B} trajectories containing NaN values."
         )
     if traj.shape[0] == 0:
         return None

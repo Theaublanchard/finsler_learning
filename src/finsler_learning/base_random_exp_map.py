@@ -209,7 +209,9 @@ class RandomExpMapRiemann(torch.nn.Module):
         p_t = []
 
         if self.pbar:
-            pbar = tqdm(total=self.T - 1, desc="Shooting geodesic trajectory")
+            pbar = tqdm(
+                range(self.T - 1), total=self.T - 1, desc="Shooting geodesic trajectory"
+            )
         else:
             pbar = range(self.T - 1)
         v0 = self.sample_initial_speed(q0)
@@ -412,17 +414,23 @@ class RandomExpMapRanders(torch.nn.Module):
         p_t = []
 
         if self.pbar:
-            pbar = tqdm(total=self.T - 1, desc="Shooting geodesic trajectory")
+            pbar = tqdm(
+                range(self.T - 1), total=self.T - 1, desc="Shooting geodesic trajectory"
+            )
         else:
             pbar = range(self.T - 1)
 
         v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
         for _ in pbar:
             if self.moving_avg_momentum is not None:
-                v0_ = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+                v0_ = sample_cone_VMF(
+                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
+                )
                 v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
             else:
-                v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+                v0 = sample_cone_VMF(
+                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
+                )
             p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
