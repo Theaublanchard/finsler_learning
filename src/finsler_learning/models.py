@@ -771,7 +771,7 @@ class RBFLayer(nn.Module):
         K : int
             The number of centroids to select. If K=-1, use all centroids.
         """
-        # dst_mat = torch.cdist(self.centroids, self.centroids, p=2).sqrt().cpu().numpy()
+        # dst_mat = torch.cdist(self.centroids, self.centroids, p=2).cpu().numpy()
         dst_mat = cdist(self.centroids, self.centroids, p=2).cpu().numpy()
         kmedoids_model = kmedoids.KMedoids(
             n_clusters=K, metric="precomputed", random_state=1312
@@ -1337,7 +1337,7 @@ class HyperPlanPredictor(nn.Module):
         #     # We do that because otherwise the gradient
         #     # Is messed up during learning.
         #     # The normalization is not needed at training time
-        #     omega_norm = self.base_cometric.cometric(x, omega).sqrt()
+        #     omega_norm = self.base_cometric.cometric(x, omega)
         #     # Normalize
         #     omega = omega / (omega_norm[:, None] + 1e-8)
         return omega
@@ -1412,7 +1412,7 @@ class Omega(torch.nn.Module):
     def forward(self, X):
         rho = self.amplitude(X).clip(0.0, 1.0)  # Just in case
         omega = self.direction(X)
-        omega_norm = self.cometric.cometric(X, omega).sqrt()
+        omega_norm = self.cometric.cometric(X, omega)
         omega = omega / (omega_norm[:, None] + 1e-8)
         return rho * omega
 
