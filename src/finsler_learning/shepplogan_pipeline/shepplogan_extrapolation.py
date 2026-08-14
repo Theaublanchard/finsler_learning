@@ -30,6 +30,7 @@ def evaluate_extrapolation(
     eval_extrapolation: bool = True,
     no_symmetric: bool = False,
     n_pts: int = 100,
+    no_randers: bool = False,
 ) -> None:
 
     model = get_models(latent_dim=latent_dim)
@@ -102,28 +103,29 @@ def evaluate_extrapolation(
             if eval_quality:
                 evaluate_extrapolated_framework(config_riemann)
 
-        LOGGER.info(f"- Evaluating {cometric_type} Randers metric...")
-        randers_metric = get_randers_metric_trained(
-            latent_dim=latent_dim,
-            cometric=cometric,
-            export_path=export_path,
-            beta=omega_strength,
-            use_dummy_accuracy=use_dummy_accuracy,
-            device=device,
-            cometric_type=cometric_type,
-        ).to(dtype)
-        config_finsler = ExtrapolationEvalFinslerConfig(
-            export_path=export_path / f"extrapolation_evaluation_{cometric_type}_randers",
-            cometric=cometric,
-            randers_metric=randers_metric,
-            eta=eta,
-            **common_params,
-        )
-        if eval_extrapolation:
-            extrapolation_evaluation(config_finsler)
-        if eval_quality:
-            evaluate_extrapolated_framework(config_finsler)
-        del config_finsler
-        del randers_metric
-        del cometric
-        torch.cuda.empty_cache()
+        if not no_randers:
+            LOGGER.info(f"- Evaluating {cometric_type} Randers metric...")
+            randers_metric = get_randers_metric_trained(
+                latent_dim=latent_dim,
+                cometric=cometric,
+                export_path=export_path,
+                beta=omega_strength,
+                use_dummy_accuracy=use_dummy_accuracy,
+                device=device,
+                cometric_type=cometric_type,
+            ).to(dtype)
+            config_finsler = ExtrapolationEvalFinslerConfig(
+                export_path=export_path / f"extrapolation_evaluation_{cometric_type}_randers",
+                cometric=cometric,
+                randers_metric=randers_metric,
+                eta=eta,
+                **common_params,
+            )
+            if eval_extrapolation:
+                extrapolation_evaluation(config_finsler)
+            if eval_quality:
+                evaluate_extrapolated_framework(config_finsler)
+            del config_finsler
+            del randers_metric
+            del cometric
+            torch.cuda.empty_cache()
