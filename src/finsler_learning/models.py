@@ -46,6 +46,7 @@ def cdist(x1: torch.Tensor, x2: torch.Tensor, p: float = 2.0) -> torch.Tensor:
     dst_mat = (x1_norm + x2_norm.T - 2 * inner_product).clamp_min(0.0).sqrt()  # (N, M)
     return dst_mat
 
+
 ############################
 # Base models
 ############################
@@ -334,7 +335,7 @@ class Decoder_MLP(BaseDecoder):
                 self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
             self.layers.append(nn.SiLU())
         self.layers.append(nn.Linear(hidden_layers[-1], self.input_dim_flat))
-        self.mu_branch = nn.Sequential(*self.mu_branch)
+        self.mu_branch = nn.Sequential(*self.layers)
 
     def forward(self, z: Tensor) -> Tensor:
         x_reco = self.mu_branch(z)
@@ -353,7 +354,7 @@ class VAE_MLP(BaseVAE):
             input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
         )
         decoder = Decoder_MLP(
-            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
+            input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers[::-1]
         )
         super().__init__(encoder=encoder, decoder=decoder)
 
@@ -380,8 +381,9 @@ class StochasticDecoder_MLP(BaseStochasticDecoder):
         self.log_variance = nn.Sequential(*self.layers, self.std)
 
     def forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
-        x_reco_mu = self.mu_branch(z)
-        x_reco_log_variance = self.log_variance(z)
+        x = self.layers(z)
+        x_reco_mu = self.mu(x)
+        x_reco_log_variance = self.std(x)
         return x_reco_mu, x_reco_log_variance
 
 
@@ -975,8 +977,12 @@ class VarianceDecoderBranch(nn.Module):
         p_dropout: float = 0.1,
     ):
         super().__init__()
-        self.linear_rdf = LinearVarianceDecoderBranch(
-            latent_dim=latent_dim, output_shape=64 * 8 * 8, data=data, K=K, kappa=kappa,
+        self.linear_rbf = LinearVarianceDecoderBranch(
+            latent_dim=latent_dim,
+            output_shape=64 * 8 * 8,
+            data=data,
+            K=K,
+            kappa=kappa,
         )
         self.unflatten = nn.Unflatten(dim=1, unflattened_size=(64, 8, 8))
         self.block1 = UpsampleBlock(64, 32, upsample_scale=4.0, affine=affine)
@@ -989,7 +995,7 @@ class VarianceDecoderBranch(nn.Module):
             self.dropout = nn.Identity()
 
         self.log_var_branch = nn.Sequential(
-            self.linear_rdf,
+            self.linear_rbf,
             self.unflatten,
             self.block1,
             self.dropout,
@@ -999,6 +1005,7 @@ class VarianceDecoderBranch(nn.Module):
             self.dropout,
             self.conv_final,
         )
+
     def forward(self, z: Tensor) -> Tensor:
         log_variance_hat = self.log_var_branch(z)
         return log_variance_hat
@@ -1028,6 +1035,53 @@ class StochasticVAE(BaseStochasticVAE):
             p_dropout=0.1,
         )
         self.decoder.std_branch = LogVarToStd(self.decoder.log_var_branch)
+
+
+class MLPVarianceDecoderBranch(nn.Module):
+    # Maps latent_dim to MNIST dimension (1, 28, 28) through a MLP with RBF layer in the middle
+    def __init__(
+        self,
+        latent_dim: int,
+        data: Tensor,
+        K: int,
+        kappa: float = 1.0,
+        hidden_layers: tuple[int, ...] = (128, 500),
+    ):
+        super().__init__()
+        self.linear_rbf = LinearVarianceDecoderBranch(
+            latent_dim=latent_dim, output_shape=64, data=data, K=K, kappa=kappa
+        )
+        self.layers = []
+        for i, hidden_dim in enumerate(hidden_layers):
+            if i == 0:
+                self.layers.append(nn.Linear(64, hidden_dim))
+            else:
+                self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
+            self.layers.append(nn.SiLU())
+        self.layers.append(nn.Linear(hidden_layers[-1], 28 * 28))
+        self.layers.append(nn.Unflatten(dim=1, unflattened_size=(1, 28, 28)))
+        self.log_var_branch = nn.Sequential(*self.layers)
+
+    def forward(self, z: Tensor) -> Tensor:
+        log_variance_hat = self.log_var_branch(z)
+        return log_variance_hat
+
+
+class StochasticVAE_MLP_RBF(BaseStochasticVAE):
+    def __init__(
+        self, latent_dim: int, base_model: VAE, data: Tensor, K: int, kappa: float = 1.0
+    ):
+        super().__init__()
+        self.encoder = base_model.encoder
+        self.decoder = base_model.decoder
+        self.decoder.mu_branch = base_model.decoder.mu_branch
+        self.decoder.log_var_branch = MLPVarianceDecoderBranch(
+            latent_dim=latent_dim,
+            data=data,
+            K=K,
+            kappa=kappa,
+            hidden_layers=(128, 500),
+        )
 
 
 #############################
@@ -1428,7 +1482,12 @@ class ConvRegressor(nn.Module):
     It expects to receive images of shape (B, C, H, W)
     """
 
-    def __init__(self, in_channels: int = 1, out_feature: int = 1):
+    def __init__(
+        self,
+        in_channels: int = 1,
+        out_feature: int = 1,
+        output_activation: nn.Module | None = None,
+    ):
         super(ConvRegressor, self).__init__()
         self.out_feature = out_feature
         self.resnet = resnet18()
@@ -1442,10 +1501,12 @@ class ConvRegressor(nn.Module):
             bias=self.resnet.conv1.bias is not None,
         )
         self.resize = v2.Resize((224, 224))
-        self.model = nn.Sequential(
-            self.resize,
-            self.resnet,
-        )
+
+        if output_activation is not None:
+            self.act = output_activation
+        else:
+            self.act = nn.Identity()
+        self.model = nn.Sequential(self.resize, self.resnet, self.act)
 
         # Cast the weights to double precision
         for param in self.model.parameters():
