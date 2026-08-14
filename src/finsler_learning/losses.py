@@ -4,7 +4,6 @@ from pytorch_msssim import MS_SSIM
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 from geodesic_toolbox import CoMetric, IdentityCoMetric
-from einops import rearrange, repeat
 
 
 class Losse(torch.nn.Module):
@@ -31,10 +30,10 @@ def margin_loss(
     t_i: Tensor,
     p_j: Tensor,
     t_j: Tensor,
-    reduce: str = "mean",
     margin: float = 0,
     cometric: CoMetric = IdentityCoMetric(),
     return_acc: bool = False,
+    chunk_size: int = 64,
 ) -> tuple[Tensor, Tensor]:
     """
     Computes the margin loss for the hyperplane predictor.
@@ -58,8 +57,6 @@ def margin_loss(
         p_j[i,:] are the K points to compute the margin loss for p_i[i]
     t_j : torch.Tensor (b,K)
         The time variable of the points p_j.
-    reduce : str
-        The reduction method to use. Can be 'mean' or 'sum'.
     margin : float
         The margin to use for the loss.
     cometric : CoMetric
@@ -74,55 +71,60 @@ def margin_loss(
     accuracy : torch.Tensor (b,)
         The accuracy of the hyperplane predictor.
     """
-    assert reduce in ["mean", "sum"], f"reduce should be in ['mean', 'sum'], but got {reduce}"
-    assert 1 > margin >= 0, f"margin should be in [0,1), but got {margin}"
+    # Sorry not good looking code
+    # Needed to do optimisation
 
-    y_ij = 2 * (t_j < t_i[:, None]) - 1  # (b,K)
-    delta_p = p_j - p_i[:, None, :]  # (b,K,d)
+    assert 0 <= margin < 1
 
-    omega_i_ = repeat(omega_i, "b d -> b K d", K=delta_p.shape[1])
-    p_i_ = repeat(p_i, "b d -> b K d", K=delta_p.shape[1])
-    omega_i_ = rearrange(omega_i_, "b K d -> (b K) d")
-    p_i_ = rearrange(p_i_, "b K d -> (b K) d")
-    delta_p_ = rearrange(delta_p, "b K d -> (b K) d")
-    y_ij_ = rearrange(y_ij, "b K -> (b K)")
+    B, K = t_j.shape
 
-    # The vectorized dot path can be prohibitively large for pullback cometrics.
-    # Stream the flattened pairwise inputs to the cometric in small chunks so each
-    # cometric.dot call only sees a bounded number of samples.
-    b = omega_i.shape[0]
-    k = delta_p.shape[1]
-    chunk_size = 128
+    loss_per_i = torch.empty(
+        B,
+        device=omega_i.device,
+        dtype=omega_i.dtype,
+    )
 
-    loss_sum = torch.zeros(b, device=omega_i.device, dtype=omega_i.dtype)
-    acc_sum = torch.zeros(b, device=omega_i.device, dtype=omega_i.dtype)
+    if return_acc:
+        acc_per_i = torch.empty(
+            B,
+            device=omega_i.device,
+            dtype=omega_i.dtype,
+        )
 
-    total_pairs = b * k
-    for start in tqdm(range(0, total_pairs, chunk_size), desc="Computing margin loss",leave=False):
-        end = min(start + chunk_size, total_pairs)
-        omega_chunk = omega_i_[start:end]
-        p_chunk = p_i_[start:end]
-        v_chunk = delta_p_[start:end]
-        y_chunk = y_ij_[start:end]
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
 
-        logits_chunk = cometric.dot(p_chunk, omega_chunk, v_chunk)
-        preloss_chunk = logits_chunk * y_chunk
-        loss_chunk = (1 - margin - preloss_chunk).clamp(0)
+        omega = omega_i[start:end]
+        p_i_chunk = p_i[start:end]
 
-        loss_sum += loss_chunk.sum(dim=0)
-        acc_sum += (preloss_chunk >= 0).to(preloss_chunk.dtype).sum(dim=0)
+        G = cometric.metric_tensor(p_i_chunk)
+        if G.dim() == 2:
+            omega_raised = omega * G
+        elif G.dim() == 3:
+            omega_raised = torch.einsum("bd,bde->be", omega, G)
 
-    if reduce == "mean":
-        loss = loss_sum / k
-        acc = acc_sum / k  # (b,)
-    elif reduce == "sum":
-        loss = loss_sum
-        acc = acc_sum  # (b,)
+        # omega^T G (p_j - p_i) = omega^T G p_j - omega^T G p_i
+        # Avoid materializing delta_p = p_j - p_i[:, None]
+        logits = torch.einsum("bd,bkd->bk", omega_raised, p_j[start:end])
+        logits -= torch.einsum("bd,bd->b", omega_raised, p_i_chunk)[:, None]
 
-    if not return_acc:
-        return loss.mean()
-    else:
-        return loss.mean(), acc
+        y_ij_chunk = t_j[start:end] < t_i[start:end, None]
+        y_ij_chunk = 2 * y_ij_chunk.to(logits.dtype) - 1
+
+        preloss = logits * y_ij_chunk
+
+        loss_chunk = (1 - margin - preloss).clamp_min(0)
+        loss_per_i[start:end] = loss_chunk.mean(dim=1)
+
+        if return_acc:
+            acc_per_i[start:end] = (preloss >= 0).to(logits.dtype).mean(dim=1)
+
+    loss = loss_per_i.mean()
+
+    if return_acc:
+        return loss, acc_per_i
+
+    return loss
 
 
 def KNN(X_1: Tensor, X_2: Tensor, k: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -201,7 +203,6 @@ def knn_margin_loss(
         t_i,
         p_j,
         t_j,
-        reduce="mean",
         margin=margin,
         cometric=cometric,
         return_acc=return_acc,
