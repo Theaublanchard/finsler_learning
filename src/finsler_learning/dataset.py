@@ -734,7 +734,7 @@ class HC18Dataset(torch.utils.data.Dataset):
 class KOMATSUNADataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_path: Path = Path("/home/tblanchard/phd/hdd/processed_data/KOMATSUNA"),
+        dataset_path: Path = Path("/home/tblanchard/phd/hdd/processed_data/komatsuna"),
         train: bool = True,
         transform=None,
         export_path: Path = None,
