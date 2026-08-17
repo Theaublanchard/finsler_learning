@@ -4,7 +4,6 @@ import torch
 from torch import Tensor
 from pathlib import Path
 from tqdm import tqdm
-from scipy.interpolate import CubicSpline
 import logging
 
 from geodesic_toolbox import (
@@ -147,150 +146,135 @@ def filter_traj_nan(traj: torch.Tensor) -> torch.Tensor | None:
     return traj
 
 
-def evaluate_dataloader(
-    exp_map: RandomExpMapRiemann | RandomExpMapRanders,
-    dataloader: torch.utils.data.DataLoader,
-    config: ExtrapolationEvalRiemannConfig,
-    n_run: int = 0,
-) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
-    """Evaluate the dataloader by extrapolating trajectories and filtering them.
-
-    Parameters
-    ----------
-    dataloader : torch.utils.data.DataLoader
-        The dataloader to evaluate.
-    config : ExtrapolationEvalRiemannConfig
-        The configuration object containing all necessary parameters and models.
-
-    Returns
-    -------
-    all_trajs : torch.Tensor (N_samples,T,d)
-        The extrapolated trajectories for all samples in the dataloader.
-    res : dict[str, torch.Tensor]
-        The computed monotonicity measures for each metric in ALL_METRICS.
-    t_pred : torch.Tensor (N_samples,T)
-        The predicted time for each point in the extrapolated trajectories.
-    """
-    res: dict[str : list[torch.Tensor]] = {name: [] for name in ALL_METRICS.keys()}
-    all_trajs = []
-    all_t_pred = []
-
-    pbar = tqdm(
-        enumerate(dataloader),
-        desc=f"Extrapolation evaluation - Run {n_run}",
-        total=len(dataloader),
-        unit="batch",
-    )
-    for i, data in pbar:
-        x, t = data
-        x = x.to(config.device)
-        t = t.to(config.device)
-
-        z, _ = config.encoder(x)
-        traj = exp_map(z)[0].detach()  # (B,T,d)
-        traj = filter_traj_nan(traj)
-
-        if traj is None:
-            continue
-
-        all_trajs.append(traj.cpu())
-
-        t_pred = retrieve_time_from_traj(
-            traj,
-            decoder=config.decoder,
-            regressor=config.regressor,
-            use_pbar=False,
-        )  # (B,T)
-
-        if config.post_process_labels is not None:
-            t_pred = config.post_process_labels(t_pred)
-        all_t_pred.append(t_pred.cpu())
-
-        for name, metric_fn in ALL_METRICS.items():
-            mono_measure = metric_fn(t_pred)  # (B,)
-            res[name].append(mono_measure.cpu())
-
-    all_trajs = torch.cat(all_trajs, dim=0)  # (N_samples,T,d)
-    all_t_pred = torch.cat(all_t_pred, dim=0)  # (N_samples,T)
-
-    for name in ALL_METRICS.keys():
-        res[name] = torch.cat(res[name], dim=0)  # (N_samples,)
-
-    return all_trajs, res, all_t_pred
-
-
-def compute_extrapolation_and_monotonicity(
+def compute_extrapolated_trajectories(
     config: ExtrapolationEvalRiemannConfig,
     dataloader_test: torch.utils.data.DataLoader,
-) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
-    """Compute the extrapolated trajectories and monotonicity measures for the test set.
+) -> Tensor:
+    """
+    Compute the extrapolated trajectories for the test set.
 
     Parameters
     ----------
     config : ExtrapolationEvalRiemannConfig
-        Configuration object containing all necessary parameters and models.
+        Configuration object containing the necessary parameters for extrapolation.
     dataloader_test : torch.utils.data.DataLoader
-        The dataloader for the test set, used to compute the extrapolated trajectories and monotonicity measures.
-    encoder : torch.nn.Module
-        The encoder used to compute the latent representation.
+        DataLoader for the test set.
 
     Returns
     -------
-    all_trajs : torch.Tensor (N_pts*n_runs,T,d)
-        The extrapolated trajectories for all samples in the test set.
-    res : dict[str, torch.Tensor] (N_pts*n_runs,)
-        The computed monotonicity measures for each metric in ALL_METRICS.
-    t_pred : torch.Tensor (N_pts*n_runs,T)
-        The predicted time for each point in the extrapolated trajectories.
+    torch.Tensor (N_test * n_runs, T, latent_dim)
+        The extrapolated trajectories for the test set.
     """
     exp_map = get_random_exp_map(config)
-
     all_trajs = []
-    all_preds = []
-    res = {name: [] for name in ALL_METRICS.keys()}
 
     for run in range(config.n_runs):
-
-        all_trajs_, res_, t_pred_ = evaluate_dataloader(
-            exp_map=exp_map,
-            dataloader=dataloader_test,
-            config=config,
-            n_run=run,
+        pbar = tqdm(
+            enumerate(dataloader_test),
+            desc=f"Extrapolation - Run {run}",
+            total=len(dataloader_test),
+            unit="batch",
         )
 
-        all_trajs.extend(all_trajs_)
-        all_preds.extend(t_pred_)
-        for name in ALL_METRICS.keys():
-            res[name].extend(res_[name])
+        for _, data in pbar:
+            x, _ = data
+            x = x.to(config.device)
 
-    t_pred = torch.stack(all_preds, dim=0)  # (N_pts*n_runs,T)
-    all_trajs = torch.stack(all_trajs, dim=0)  # (N_pts*n_runs,T,d)
-    for name in ALL_METRICS.keys():
-        res[name] = torch.stack(res[name], dim=0)  # (N_pts*n_runs,)
+            z, _ = config.encoder(x)
+            traj = exp_map(z)[0].detach()  # (B,T,d)
+            traj = filter_traj_nan(traj)
 
-    return all_trajs, res, t_pred
+            if traj is not None:
+                all_trajs.append(traj.cpu())
+
+    if not all_trajs:
+        raise RuntimeError("No valid extrapolated trajectories were generated.")
+
+    # (N_test * n_runs, T, latent_dim)
+    return torch.cat(all_trajs, dim=0)
+
+
+@torch.no_grad()
+def evaluate_extrapolated_trajectories(
+    config: ExtrapolationEvalRiemannConfig,
+    traj_test: Tensor,
+) -> tuple[dict[str, Tensor], Tensor]:
+    """
+    Evaluate already-computed extrapolated trajectories.
+    
+    Parameters
+    ----------
+    config : ExtrapolationEvalRiemannConfig
+        Configuration object containing the necessary parameters for evaluation.
+    traj_test : torch.Tensor (N_test * n_runs, T, latent_dim)
+        The extrapolated trajectories for the test set.
+
+    Returns
+    -------
+    metrics_test : dict[str, torch.Tensor]
+        A dictionary containing the computed evaluation metrics for the test set.
+    t_pred_test : torch.Tensor (N_test * n_runs, T)
+        The predicted time for each point in the extrapolated trajectories for the test set.
+    """
+    logger.info("Retrieving time from extrapolated trajectories...")
+    t_pred_test = retrieve_time_from_traj(
+        traj=traj_test,
+        decoder=config.decoder,
+        regressor=config.regressor,
+    )
+
+    if config.post_process_labels is not None:
+        t_pred_test = config.post_process_labels(t_pred_test)
+
+    metrics_test = {
+        name: metric_fn(t_pred_test).cpu().detach() for name, metric_fn in ALL_METRICS.items()
+    }
+
+    return metrics_test, t_pred_test.cpu().detach()
+
+
+def export_extrapolated_trajectories(
+    config: ExtrapolationEvalRiemannConfig,
+    traj_test: Tensor,
+) -> None:
+    """Export the extrapolated trajectories to a file."""
+    export_path = config.export_path
+    export_path.mkdir(parents=True, exist_ok=True)
+    torch.save(traj_test, export_path / "extrapolated_traj_test.pth")
+
+
+def compute_extrapolation_evaluation(
+    config: ExtrapolationEvalRiemannConfig,
+) -> tuple[dict[str, Tensor], Tensor]:
+    """Evaluate trajectories previously exported to ``config.export_path``."""
+    traj_test = torch.load(config.export_path / "extrapolated_traj_test.pth")
+    logger.info(f"Shape of the test extrapolated trajectories: {traj_test.shape}")
+
+    metrics_test, t_pred_test = evaluate_extrapolated_trajectories(
+        config=config,
+        traj_test=traj_test,
+    )
+
+    torch.save(
+        t_pred_test,
+        config.export_path / "extrapolated_time_test.pth",
+    )
+    return metrics_test, t_pred_test
 
 
 def export_extrapolation_evaluation(
     config: ExtrapolationEvalRiemannConfig,
     metrics_test: dict[str, Tensor],
 ) -> None:
-    """
-    Exports the geodesic evaluation results to a file.
-
-    Parameters:
-    ----------
-    config : ExtrapolationEvalRiemannConfig
-        Configuration object containing export path.
-    mono_measure_list_test : torch.Tensor (N_test,N_pts)
-        The computed monotonicity measures for the test set.
-
-    """
+    """Export extrapolation evaluation metrics to files."""
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
-    for name in ALL_METRICS.keys():
-        torch.save(metrics_test[name], export_path / f"extrapolation_{name}_test.pth")
+    for name, metric_values in metrics_test.items():
+        torch.save(
+            metric_values,
+            export_path / f"extrapolation_{name}_test.pth",
+        )
 
 
 def get_metrics_summary(metrics: dict[str, Tensor]) -> dict[str, float]:
@@ -357,49 +341,31 @@ def export_extrapolated_time(
 def extrapolation_evaluation(
     config: ExtrapolationEvalRiemannConfig,
 ) -> tuple[Tensor, Tensor]:
-    """Perform extrapolation evaluation using the provided configuration.
-
-    Parameters
-    ----------
-    config : ExtrapolationEvalRiemannConfig
-        Configuration object containing all necessary parameters and models.
-
-    Returns
-    -------
-    traj_test : torch.Tensor (N_pts*n_runs,T,d)
-        The extrapolated trajectories for all samples in the test set.
-    t_pred_test : torch.Tensor (N_pts*n_runs,T)
-        The predicted time for each point in the extrapolated trajectories for the test set.
-    """
+    """Compute/export trajectories first, then evaluate the exported trajectories."""
     start_time = datetime.now()
 
-    logger.info("Computing extrapolation and monotonicity for test set...")
-    traj_test, res_test, t_pred_test = compute_extrapolation_and_monotonicity(
-        config,
-        config.dataloader_test,
+    # Phase 1: compute and export trajectories.
+    logger.info("Computing extrapolated trajectories for test set...")
+    traj_test = compute_extrapolated_trajectories(
+        config=config,
+        dataloader_test=config.dataloader_test,
     )
+    export_extrapolated_trajectories(config, traj_test)
 
-    summary_test = get_metrics_summary(res_test)
+    # Phase 2: load the exported trajectories and evaluate them.
+    logger.info("Evaluating exported extrapolated trajectories...")
+    metrics_test, t_pred_test = compute_extrapolation_evaluation(config)
+
+    summary_test = get_metrics_summary(metrics_test)
     logger.info("Extrapolation evaluation results:")
     for name in ALL_METRICS.keys():
         logger.info(
             f"{name.upper()}"
-            f" - Test: mean={summary_test[name]['mean']:.4f} +- {summary_test[name]['std']:.4f}, "
+            f" - Test: mean={summary_test[name]['mean']:.4f} +- "
+            f"{summary_test[name]['std']:.4f}, "
         )
 
-    logger.info("Exporting results...")
-    export_extrapolation_evaluation(
-        config,
-        res_test,
-    )
-    export_extrapolated_trajectories(
-        config,
-        traj_test,
-    )
-    export_extrapolated_time(
-        config,
-        t_pred_test,
-    )
+    export_extrapolation_evaluation(config, metrics_test)
 
     end_time = datetime.now()
     elapsed_time = end_time - start_time
