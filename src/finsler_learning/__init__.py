@@ -18,3 +18,5 @@ from .losses import *
 from .logger import *
 
 from . import shepplogan_pipeline
+from . import mnist_pipeline
+from . import komatsuna_pipeline

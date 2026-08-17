@@ -393,15 +393,9 @@ class AEDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         data = self.dataloader.dataset[idx]
-        if not self.cfg_geodesic.use_cond_vae:
-            x, t = data
-            x = x.to(self.device).unsqueeze(0)
-            z, _ = self.encoder(x)
-        else:
-            x, t, c = data
-            x = x.to(self.device).unsqueeze(0)
-            c = c.to(self.device).unsqueeze(0)
-            z, _ = self.encoder(x, c)
+        x, t = data
+        x = x.to(self.device).unsqueeze(0)
+        z, _ = self.encoder(x)
 
         x_hat = self.decoder(z).squeeze(0)
         return x_hat, 0
