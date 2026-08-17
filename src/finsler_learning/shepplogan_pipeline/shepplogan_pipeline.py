@@ -28,13 +28,15 @@ from finsler_learning.base_quality_evaluation import (
 from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
 from finsler_learning.shepplogan_pipeline.shepplogan_vae import train_vae
 from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
-    get_image_regressor,
     train_regressor,
 )
 from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import (
     train_randers,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import evaluate_monotonicity
+from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
+    evaluate_monotonicity,
+    get_model_regressor_trained,
+)
 from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
     evaluate_extrapolation,
 )
@@ -66,8 +68,8 @@ def vae_regressor(
 
         x_hat, _, _ = vae(x)
 
-        preds = regressor(x).squeeze()
-        preds_hat = regressor(x_hat).squeeze()
+        preds = regressor(x).squeeze(-1)
+        preds_hat = regressor(x_hat).squeeze(-1)
 
         metric_base.update(preds, y)
         metric_hat.update(preds_hat, y)
@@ -89,7 +91,7 @@ def evaluate_vae_quality(
     try_load_pretrained_models(export_path, model)
     model = model.to(device)
     model.eval()
-    regressor = get_image_regressor()
+    regressor = get_model_regressor_trained(export_path, device=device)
     dl_config = DatasetConfig(
         batch_size=batch_size,
     )
@@ -258,6 +260,7 @@ def main(cfg: SheppLoganPipelineConfig):
                 k=cfg.K_cometric,
                 eval_quality=cfg.eval_quality_interpolation,
                 eval_monotonicity=cfg.eval_interpolation,
+                no_symmetric=cfg.no_symmetric,
             )
 
         if cfg.eval_extrapolation or cfg.eval_quality_extrapolation:

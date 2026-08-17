@@ -73,6 +73,7 @@ def evaluate_monotonicity(
     k: int,
     eval_quality: bool = True,
     eval_monotonicity: bool = True,
+    no_symmetric: bool = False,
 ):
 
     EXPORT_GEODESICS: bool = True
@@ -155,6 +156,7 @@ def evaluate_monotonicity(
             dtype,
             common_params,
             cometric_type,
+            no_symmetric
         )
 
     # Then those that can't use GEORCE because way to slow to compute the cometric
@@ -186,6 +188,7 @@ def evaluate_monotonicity(
             dtype,
             common_params,
             cometric_type,
+            no_symmetric
         )
 
 
@@ -202,6 +205,7 @@ def evaluate_mono_inter_setup(
     dtype: torch.dtype,
     common_params: dict,
     cometric_type: str,
+    no_symmetric: bool = False,
 ):
     LOGGER.info(f"- Evaluating {cometric_type} metric...")
     cometric = get_cometric(
@@ -217,10 +221,11 @@ def evaluate_mono_inter_setup(
         cometric=cometric,
         **common_params,
     )
-    if eval_monotonicity:
-        geodesic_evaluation(config_riemann)
-    if eval_quality:
-        evaluate_framework(config_riemann)
+    if not no_symmetric:
+        if eval_monotonicity:
+            geodesic_evaluation(config_riemann)
+        if eval_quality:
+            evaluate_framework(config_riemann)
 
     del config_riemann
 
