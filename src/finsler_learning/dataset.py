@@ -806,13 +806,13 @@ class KOMATSUNADataset(torch.utils.data.Dataset):
         return len(self.df_info)
 
     def read_row(self, row: pd.Series):
-        img = read_image(str(row["img_path"])).float() / 255.0  # (C, H, W)
+        img = read_image(str(row["img_path"])).double() / 255.0  # (C, H, W)
 
-        label = torch.tensor(row["area"], dtype=torch.float64)
+        label = torch.tensor(row["area"], dtype=torch.double)
 
         if self.return_annots:
             annot = read_image(str(row["label_path"]))  # (C, H, W)
-            annot = (annot != 0).any(dim=0).float()  # (H, W), binary mask
+            annot = (annot != 0).any(dim=0).double()  # (H, W), binary mask
             if self.transform is not None:
                 img = self.transform(img)
             return img, annot
