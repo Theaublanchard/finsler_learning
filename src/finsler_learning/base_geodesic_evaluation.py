@@ -41,7 +41,7 @@ class GeodesicSolverParams:
     batch_size: int = 32
     max_data_count: int = 10_000
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pbar: bool = True  # whether to show a progress bar during geodesic computation
+    pbar: bool = False  # whether to show a progress bar during geodesic computation
 
 @dataclass
 class GeodesicEvalRiemannConfig:
@@ -179,6 +179,7 @@ def get_solver(
                 max_data_count=config.max_data_count,
                 T=config.n_pts,
                 smooth_curve=False,
+                pbar_georce=config.pbar,
             )
         else:
             solver = SolverGraphSplineFinsler(
@@ -203,6 +204,7 @@ def get_solver(
                 max_data_count=config.max_data_count,
                 T=config.n_pts,
                 smooth_curve=False,
+                pbar_georce=config.pbar,
             )
         else:
             solver = SolverGraphSpline(
@@ -305,7 +307,7 @@ def get_ordered_data_fixed(
         idx_1 = idx[B // 2 :]
     # Else, reject the middle point and split the rest
     else:
-        logger = logging.getLogger(__name__)
+        logger = logging.getLogger()
         logger.warning(f"Batch size {B} is odd, rejecting the middle point for splitting.")
         idx_0 = idx[: B // 2]
         idx_1 = idx[B // 2 + 1 :]
