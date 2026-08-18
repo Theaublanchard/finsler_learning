@@ -9,12 +9,70 @@ from geodesic_toolbox.samplers import (
     ExplicitLeapfrogIntegrator,
     ImplicitLeapfrogIntegrator,
     EulerIntegrator,
+    Hamiltonian,
 )
 from geodesic_toolbox.utils import (
     sample_cometric_normal,
     sample_cone_VMF,
 )
 from tqdm import tqdm
+
+
+class HamiltonianRanders(Hamiltonian):
+    def __init__(self, randers: RandersMetrics):
+        super().__init__()
+        self.randers = randers
+        self.dual_r = DualRandersMetrics(randers)
+
+    def H(self, q: Tensor, p: Tensor) -> Tensor:
+        """
+        Hamiltonian function for the Randers manifold.
+
+        Parameters
+        ----------
+        q : torch.Tensor (b, d)
+            Position
+        p : torch.Tensor (b, d)
+            Momentum
+
+        Returns
+        -------
+        H : torch.Tensor (b,)
+            Hamiltonian value
+        """
+        H = self.dual_r(q, p)
+        return 0.5 * H**2
+
+    def forward(self, q, p):
+        return self.H(q, p)
+
+
+class HamiltonianRiemann(Hamiltonian):
+    def __init__(self, cometric: CoMetric):
+        super().__init__()
+        self.cometric = cometric
+
+    def H(self, q: Tensor, p: Tensor) -> Tensor:
+        """
+        Hamiltonian function for the Riemannian manifold.
+
+        Parameters
+        ----------
+        q : torch.Tensor (b, d)
+            Position
+        p : torch.Tensor (b, d)
+            Momentum
+
+        Returns
+        -------
+        H : torch.Tensor (b,)
+            Hamiltonian value
+        """
+        H = self.cometric.cometric(q, p)
+        return 0.5 * H**2
+
+    def forward(self, q, p):
+        return self.H(q, p)
 
 
 class RandomExpMapRiemann(torch.nn.Module):
@@ -79,6 +137,8 @@ class RandomExpMapRiemann(torch.nn.Module):
         self.n_fix_pts = n_fix_pts
         self.pbar = pbar
         self.moving_avg_momentum = moving_avg_momentum
+
+        self.H = HamiltonianRiemann(cometric=cometric)
 
         if self.solver == "leapfrog_explicit":
             self.shooter = ExplicitLeapfrogIntegrator(
@@ -150,25 +210,6 @@ class RandomExpMapRiemann(torch.nn.Module):
         else:
             G_inv_p = torch.einsum("bij,bj->bi", G_inv, p)
         return G_inv_p
-
-    def H(self, q: Tensor, p: Tensor) -> Tensor:
-        """
-        Hamiltonian function for the Riemannian manifold.
-
-        Parameters
-        ----------
-        q : torch.Tensor (b, d)
-            Position
-        p : torch.Tensor (b, d)
-            Momentum
-
-        Returns
-        -------
-        H : torch.Tensor (b,)
-            Hamiltonian value
-        """
-        H = self.cometric.cometric(q, p)
-        return 0.5 * H
 
     def sample_initial_speed(self, q: Tensor) -> Tensor:
         """
@@ -302,6 +343,7 @@ class RandomExpMapRanders(torch.nn.Module):
         self.moving_avg_momentum = moving_avg_momentum
 
         self.dual_r = DualRandersMetrics(randers)
+        self.H = HamiltonianRanders(randers=randers)
 
         if self.solver == "leapfrog_explicit":
             self.shooter = ExplicitLeapfrogIntegrator(
@@ -328,6 +370,7 @@ class RandomExpMapRanders(torch.nn.Module):
                 f"Unknown solver {self.solver=}. Must be one of 'leapfrog_explicit', 'leapfrog_implicit' or 'euler'."
             )
 
+    @torch.no_grad()
     def legendre_transform(self, q: Tensor, v: Tensor) -> Tensor:
         """
         Convert a speed vector to a momentum vector using the Legendre transform.
@@ -351,6 +394,7 @@ class RandomExpMapRanders(torch.nn.Module):
         p = torch.einsum("bij,bj->bi", g, v)
         return p
 
+    @torch.no_grad()
     def inverse_legendre_transform(self, q: Tensor, p: Tensor) -> Tensor:
         """
         Convert a momentum vector to a speed vector using the inverse Legendre transform.
@@ -373,25 +417,6 @@ class RandomExpMapRanders(torch.nn.Module):
         g_inv = self.dual_r.fundamental_tensor(q, p)
         v = torch.einsum("bij,bj->bi", g_inv, p)
         return v
-
-    def H(self, q: Tensor, p: Tensor) -> Tensor:
-        """
-        Hamiltonian function for the Riemannian manifold.
-
-        Parameters
-        ----------
-        q : torch.Tensor (b, d)
-            Position
-        p : torch.Tensor (b, d)
-            Momentum
-
-        Returns
-        -------
-        H : torch.Tensor (b,)
-            Hamiltonian value
-        """
-        H = self.dual_r(q, p)
-        return 0.5 * H**2
 
     def forward(self, q0: Tensor) -> tuple[Tensor, Tensor]:
         """
