@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from scipy.stats import kendalltau, pearsonr, spearmanr
-
+import numpy as np
 
 def hyperplane_params(pts, w, line_length=0.1):
     """Returns the points of the hyperplane defined by the normal vector w at the point pts.
@@ -68,6 +68,9 @@ def kendall_tau(a: Tensor):
     for b in range(B):
         y = a[b].cpu().numpy()
         tau, _ = kendalltau(range(n), y)
+        # If all the values are the same, kendalltau returns nan. In this case, we set tau to 0.
+        if np.isnan(tau):
+            tau = 0.0
         kendall_tau.append(tau)
     return torch.tensor(kendall_tau, device=a.device)
 
@@ -90,6 +93,9 @@ def pearson_corr(x: Tensor):
     for b in range(B):
         y = x[b].cpu().numpy()
         corr, _ = pearsonr(range(n), y)
+        # If all the values are the same, pearsonr returns nan. In this case, we set corr to 0.
+        if np.isnan(corr):
+            corr = 0.0
         pearson_corr.append(corr)
     return torch.tensor(pearson_corr, device=x.device)
 
@@ -111,5 +117,8 @@ def spearman_corr(x: Tensor):
     for b in range(B):
         y = x[b].cpu().numpy()
         corr, _ = spearmanr(range(n), y)
+        # If all the values are the same, spearmanr returns nan. In this case, we set corr to 0.
+        if np.isnan(corr):
+            corr = 0.0
         spearman_corr.append(corr)
     return torch.tensor(spearman_corr, device=x.device)
