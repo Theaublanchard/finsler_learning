@@ -34,11 +34,11 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LOGGER = logging.getLogger()
 
 VALID_COMETRIC_TYPES = {
-    # "euclidean": {"needs_spline": False, "requires_stochastic_vae": False},
+    "euclidean": {"needs_spline": False, "requires_stochastic_vae": False},
     "land_rbf": {"needs_spline": False, "requires_stochastic_vae": False},
-    # "land": {"needs_spline": False, "requires_stochastic_vae": False},
-    # "cov_centroids": {"needs_spline": False, "requires_stochastic_vae": False},
-    # "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
+    "land": {"needs_spline": False, "requires_stochastic_vae": False},
+    "cov_centroids": {"needs_spline": False, "requires_stochastic_vae": False},
+    "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
     # "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
     # "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
     # "pbig": {"needs_spline": True, "requires_stochastic_vae": True},

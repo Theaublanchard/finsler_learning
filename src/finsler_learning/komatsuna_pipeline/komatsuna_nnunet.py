@@ -272,7 +272,10 @@ def _find_nnunet_trained_model_folder(ds_name: str, n_epochs: int) -> Path:
             f"Missing nnUNet results folder for dataset {ds_name}: {dataset_root}"
         )
 
-    trainer_prefix = f"nnUNetTrainer_{n_epochs}epochs"
+    if n_epochs == 1:
+        trainer_prefix = "nnUNetTrainer_1epoch"
+    else:
+        trainer_prefix = f"nnUNetTrainer_{n_epochs}epochs"
     matches = sorted(
         path
         for path in dataset_root.rglob("*")

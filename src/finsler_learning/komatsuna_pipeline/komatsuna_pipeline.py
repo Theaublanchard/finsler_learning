@@ -342,7 +342,7 @@ def add_evaluation_arguments(parser: ArgumentParser):
         "--b_size_evaluation", type=int, default=64, help="Batch size for evaluation"
     )
     parser.add_argument(
-        "--n_pts", type=int, default=100, help="Number of points for geodesic evaluation"
+        "--n_pts", type=int, default=25, help="Number of points for geodesic evaluation"
     )
 
 
