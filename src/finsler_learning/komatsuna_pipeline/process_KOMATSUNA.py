@@ -25,6 +25,11 @@ def apply_gamma_correction(img: Tensor, gamma: float) -> Tensor:
     img_corrected = (img_corrected * 255).clamp(0, 255)
     return img_corrected.to(torch.uint8)
 
+def compute_area(label_path: Path) -> float:
+    annot = read_image(label_path)  # (3, H, W)
+    annot_bw = (annot != 0).any(dim=0).double()  # (H,W)
+    area = float(annot_bw.sum()) / (annot_bw.shape[0] * annot_bw.shape[1])
+    return area
 
 def main():
     ds_path = Path("/home/tblanchard/phd/hdd/raw_data/komatsuna")
@@ -79,7 +84,7 @@ def main():
                 "time_id": [time_id],
                 "img_path": [str(new_img_p)],
                 "label_path": [str(new_label_p)],
-                "area": float(label_bw.sum() / 255) / (TARGET_SIZE[0] * TARGET_SIZE[1]),
+                "area": compute_area(new_label_p),
             }
         )
         rows.append(row)
