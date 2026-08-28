@@ -3,7 +3,7 @@ from torch import Tensor
 from pytorch_msssim import MS_SSIM
 from torchmetrics import MeanMetric
 from tqdm import tqdm
-from geodesic_toolbox import CoMetric, IdentityCoMetric
+from geodesic_toolbox import CoMetric, IdentityCoMetric, PullBackCometric
 
 
 class Losse(torch.nn.Module):
@@ -525,6 +525,102 @@ class MS_SSIMLoss(Losse):
             y = self.resize(y)
         loss = 1 - self.msssim(x, y)
         self.curr_it_component = {"mssim_loss": loss}
+        if not return_components:
+            return loss
+        else:
+            return loss, self.curr_it_component
+
+
+class FlatManifoldLoss(Losse):
+    """
+    Loss from "Learning Flat Latent Manifolds with VAEs".
+    It pull the decoder towards a the scaled identity metric.
+
+    Parameters
+    ----------
+    decoder : torch.nn.Module
+        The decoder of the VAE model.
+    n_steps : int
+        The number of steps to use for the linear interpolation between pairs of points in the latent space
+    """
+
+    def __init__(self, decoder: torch.nn.Module, n_steps: int = 10):
+        super().__init__()
+        self.decoder = decoder
+        self.pb_dec = PullBackCometric(
+            diffeo=self.decoder,
+            method="finite_difference",
+        )
+        self.c_square = 1.0
+        self.n_steps = n_steps
+
+    def linear_interpolation(self, z_0: Tensor, z_1: Tensor, n_steps: int) -> Tensor:
+        """
+        Parameters
+        ----------
+        z_0 : Tensor (B, D)
+            The starting point of the interpolation.
+        z_1 : Tensor (B, D)
+            The ending point of the interpolation.
+        n_steps : int
+            The number of steps in the interpolation.
+
+        Returns
+        -------
+        z_interp : Tensor (B *  n_steps, D)
+            The interpolated points between z_0 and z_1.
+        """
+        B, D = z_0.shape
+        t = torch.linspace(0, 1, n_steps, device=z_0.device)
+        t = t.view(1, n_steps, 1).expand(B, n_steps, D)
+        z_interp = z_0.unsqueeze(1) * (1 - t) + z_1.unsqueeze(1) * t
+        z_interp = z_interp.view(B * n_steps, D)
+        return z_interp
+
+    def set_c_square(self, z: Tensor) -> None:
+        """
+        Compute c^2 = mean(Tr(G(z_inter))) where G is the pullback metric of the decoder.
+
+        Here z_inter is a set of interpolated points between pairs of points in z.
+
+        Parameters
+        ----------
+        z : Tensor (B, D)
+            The latent variable tensor.
+
+        Returns
+        -------
+        c_square : float
+            The computed scaling factor for the identity metric.
+        """
+        idx = torch.randperm(z.shape[0])
+        z_0 = z[idx[: z.shape[0] // 2]]
+        z_1 = z[idx[z.shape[0] // 2 :]]
+        z_inter = self.linear_interpolation(z_0, z_1, n_steps=self.n_steps)
+        G = self.pb_dec.metric_tensor(z_inter)
+        c_square = torch.trace(G).mean().item()
+        self.c_square = c_square
+
+    def forward(self, z: Tensor, return_components: bool = False) -> Tensor:
+        """
+        Parameters
+        ----------
+        z : Tensor (B, D)
+            The latent variable tensor.
+        return_components : bool
+            If True, returns a dictionary containing the computed loss value and its components. Default is False.
+
+        Returns
+        -------
+        loss : Tensor (1,)
+            The computed loss value, which is the mean squared Frobenius norm of the difference between the pullback metric and the scaled identity metric.
+        """
+        self.set_c_square(z)
+        G = self.pb_dec.metric_tensor(z)
+        G_minus_id = G - self.c_square * self.pb_dec.eye(z)  # (B, D, D)
+        loss = torch.linalg.norm(G_minus_id, dim=(-2, -1)) ** 2
+        loss = loss.mean()
+        self.curr_it_component = {"flat_manifold_loss": loss}
         if not return_components:
             return loss
         else:
