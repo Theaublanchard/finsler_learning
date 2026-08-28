@@ -37,13 +37,13 @@ LOGGER = logging.getLogger()
 
 VALID_COMETRIC_TYPES = {
     "euclidean": {"needs_spline": False, "requires_stochastic_vae": False},
+    "land_rbf": {"needs_spline": False, "requires_stochastic_vae": False},
     "land": {"needs_spline": False, "requires_stochastic_vae": False},
     "cov_centroids": {"needs_spline": False, "requires_stochastic_vae": False},
-    "land_rbf": {"needs_spline": False, "requires_stochastic_vae": False},
     "pullback_centroids": {"needs_spline": True, "requires_stochastic_vae": False},
-    "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
-    "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
-    "pbig": {"needs_spline": True, "requires_stochastic_vae": True},
+    # "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
+    # "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
+    # "pbig": {"needs_spline": True, "requires_stochastic_vae": True},
 }
 
 
@@ -213,7 +213,7 @@ def get_shepplogan_dataloaders(
     shepplogan_test_loader = DataLoader(
         test_dataset,
         batch_size=dataset_config.batch_size,
-        shuffle=True,
+        shuffle=False,
         num_workers=dataset_config.n_workers,
         pin_memory=True,
     )
@@ -374,7 +374,7 @@ def get_cometric_warped_pullback(
     pullback_cometric = PullBackCometric(
         diffeo=warped_decoder,
         method="finite_difference",
-        chunk_size=1,
+        chunk_size=16,
     ).to(device)
     return pullback_cometric
 
@@ -435,13 +435,13 @@ def get_cometric_rbf_pullback(
         method="finite_difference",
         reg_coef=0.0,
     )
-    pb_decoder_logvar = PullBackCometric(
+    pb_decoder_std = PullBackCometric(
         diffeo=model.decoder.std_branch,
         method="finite_difference",
         reg_coef=0.0,
     )
 
-    cometric = pb_decoder_mu + pb_decoder_logvar
+    cometric = pb_decoder_mu + pb_decoder_std
     return cometric.to(device)
 
 
@@ -469,7 +469,7 @@ def get_cometric_pbig(
     model.eval()
 
     cometric = PBIG_Cometric_Gaussian(
-        decoder=model.decoder.complete_forward, epsilon=1e-4, rho=1e-4
+        decoder=model.decoder,
     )
     return cometric.to(device)
 
