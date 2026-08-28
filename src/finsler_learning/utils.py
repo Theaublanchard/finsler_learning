@@ -2,6 +2,8 @@ import torch
 from torch import Tensor
 from scipy.stats import kendalltau, pearsonr, spearmanr
 import numpy as np
+from einops import rearrange
+import matplotlib.pyplot as plt
 
 def hyperplane_params(pts, w, line_length=0.1):
     """Returns the points of the hyperplane defined by the normal vector w at the point pts.
@@ -122,3 +124,118 @@ def spearman_corr(x: Tensor):
             corr = 0.0
         spearman_corr.append(corr)
     return torch.tensor(spearman_corr, device=x.device)
+
+@torch.no_grad()
+def decode_traj(z_traj, decoder:torch.nn.Module,device:torch.device):
+    """
+    Decoder a batch of latent trajectories into the original space using the provided decoder.
+    
+    Parameters:
+    -----------
+    z_traj : Tensor (B,T,D)
+        The latent trajectories to decode.
+    decoder : torch.nn.Module
+        The decoder model to use for decoding.
+    device : torch.device
+        The device to use for decoding.
+    """
+    B, T, D = z_traj.shape
+    z_traj = rearrange(z_traj, "b t d -> (b t) d")
+    decoded = decoder(z_traj.to(device))
+    decoded = rearrange(decoded, "(b t) ... -> b t ...", b=B, t=T)
+    return decoded
+
+def stuck_images(x_hat:torch.Tensor,pad:int=0,pad_colors=0)->torch.Tensor:
+    """
+    Given a sequences of images, returns the concatenated images for visualization.
+
+    Parameters:
+    x_hat : Tensor (B, T, C, H, W)
+        A sequence of images.
+    pad : int
+        The amount of padding between images in pixels.
+    pad_colors : int
+        The color of the padding (0 for black, 1 for white).
+
+    Returns:
+    Tensor (B, C, H, T*W + (T-1)*pad)
+        The concatenated images.
+    """
+    B, T, C, H, W = x_hat.shape
+    if pad > 0:
+        pad_tensor = torch.ones((B, T, C, H, pad), device=x_hat.device) * pad_colors
+        x_hat_padded = torch.cat([x_hat, pad_tensor], dim=-1)
+    else:
+        x_hat_padded = x_hat
+    return rearrange(x_hat_padded, "b t c h w -> b c h (t w)")
+
+
+def prepare_images(x_hat:torch.Tensor, n_pts:int=10)->torch.Tensor:
+    """Prepares the images for visualization by selecting a subset of points and concatenating them.
+    
+    Parameters:
+    x_hat : Tensor (B, T, C, H, W)
+        The decoded images along the geodesic trajectories.
+    n_pts : int
+        The number of points to select from each trajectory for visualization.
+    """
+    idx = torch.linspace(0, x_hat.shape[1]-1, n_pts).long()
+    x_hat = x_hat[:, idx] # (B, n_pts, C, H, W)
+    x_plot = stuck_images(x_hat, pad=0, pad_colors=1) # (B, C, H, T*W + (T-1)*pad)
+    x_plot = rearrange(x_plot, "b c h w -> b h w c") # (B, H, W, C)
+    return x_plot
+
+def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bool=False,randers_only:bool=False)->tuple[plt.Figure,np.ndarray]:
+    """Plots the results of the geodesic evaluations for different methods.
+
+    Parameters: 
+    all_res : dict
+        A dictionary containing the results for each method.
+        all_res[method_name] = {
+            "x_hat": Tensor (B, T, C, H, W),
+            "t_traj": Tensor (B, T),
+            "kendall_tau": Tensor (B,)
+        }
+    idx : int
+        The index of the sample to plot.
+    sharey : bool
+        Whether to share the y-axis across subplots.
+    relative_variation : bool
+        Whether to display the relative variation of the t_traj
+    randers_only : bool
+        Whether to only plot the Randers methods.
+
+    Returns:
+    fig : matplotlib.figure.Figure
+        The figure containing the plots.
+    axes : numpy.ndarray
+        The axes of the figure.
+    """
+    if randers_only:
+        all_res = {k: v for k, v in all_res.items() if "Randers" in k}
+    n_method = len(all_res.keys())
+    fig, axes = plt.subplots(n_method, 2, figsize=(20, 2*n_method), width_ratios=[0.1, 1],
+                            sharey="col" if sharey else False
+                            )
+    for i, (method_name, res) in enumerate(all_res.items()):
+        x_hat = res["x_hat"] # (B, T, C, H, W)
+        x_plot = prepare_images(x_hat, n_pts=10)
+        x_plot = x_plot[idx] # (H, W, C)
+
+        kendall_tau = res["kendall_tau"][idx]
+        t_pred = res["t_traj"][idx]
+        rel_val = (t_pred[-1] - t_pred[0]) / t_pred[0] * 100
+
+        axes[i, 0].plot(t_pred, color="blue")
+        axes[i, 0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=12, ha="left", va="top", transform=axes[i, 0].transAxes)
+        if relative_variation:
+            axes[i, 0].text(0., 0.7, f"RV = {rel_val:.2f}%", fontsize=12, ha="left", va="top", transform=axes[i, 0].transAxes)
+        axes[i, 0].set_xticks([])
+        axes[i, 0].set_yticks([])
+        axes[i, 0].set_ylabel(f"{method_name}",fontsize=12)
+        axes[i, 1].imshow(x_plot, cmap="gray", aspect="equal")
+        axes[i, 1].set_anchor("W")
+        axes[i, 1].axis("off")
+    fig.tight_layout()
+    return fig, axes
+
