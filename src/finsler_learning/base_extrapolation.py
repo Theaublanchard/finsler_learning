@@ -14,6 +14,7 @@ from geodesic_toolbox import (
 )
 from .base_geodesic_evaluation import retrieve_time_from_traj, ALL_METRICS
 from .base_random_exp_map import RandomExpMapRiemann, RandomExpMapRanders
+from .spherical_tools import RandomSphericalExpMap
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,24 @@ def get_exp_map(
 
 def get_random_exp_map(
     config: ExtrapolationEvalRiemannConfig,
-) -> RandomExpMapRiemann | RandomExpMapRanders:
+) -> RandomExpMapRiemann | RandomExpMapRanders | RandomSphericalExpMap:
     """Get the exponential map object based on the configuration."""
+    if config.export_path.name == "extrapolation_eval_spherical":
+        logger = logging.getLogger()
+        logger.info("Using spherical extrapolation.")
+        exp_map = RandomSphericalExpMap(
+            T_max=config.T_max,
+            T=config.T,
+            alpha=config.alpha,
+            moving_avg_momentum=config.moving_avg_momentum,
+        )
+        return exp_map
+
+    if config.export_path.name == "extrapolation_eval_lgds":
+        logger = logging.getLogger()
+        logger.info("Using LGDS extrapolation.")
+        raise NotImplementedError("LGDS extrapolation is not implemented yet.")
+
     if isinstance(config, ExtrapolationEvalFinslerConfig):
         exp_map = RandomExpMapRanders(
             randers=config.randers_metric,
@@ -201,7 +218,7 @@ def evaluate_extrapolated_trajectories(
 ) -> tuple[dict[str, Tensor], Tensor]:
     """
     Evaluate already-computed extrapolated trajectories.
-    
+
     Parameters
     ----------
     config : ExtrapolationEvalRiemannConfig

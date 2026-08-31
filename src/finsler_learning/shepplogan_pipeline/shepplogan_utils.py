@@ -24,6 +24,7 @@ from finsler_learning import (
     StochasticVAE,
     SheppLoganDataset,
     WarpedDecoder,
+    SphericalVAE,
 )
 
 #################################################################
@@ -136,6 +137,10 @@ def export_shepplogan_config(config: SheppLoganPipelineConfig):
 ###############################################################
 def get_models(latent_dim: int) -> VAE:
     model = VAE(latent_dim=latent_dim, affine=True)
+    return model
+
+def get_spherical_model(latent_dim: int) -> VAE:
+    model = SphericalVAE(latent_dim=latent_dim, affine=True)
     return model
 
 

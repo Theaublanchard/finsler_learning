@@ -62,6 +62,73 @@ def get_randers_metric_trained(
     return randers
 
 
+def evaluate_monotonicity_spherical(
+    config: SheppLoganPipelineConfig,
+    export_path: Path,
+    latent_dim: int,
+    device: torch.device,
+    batch_size: int,
+    eval_quality: bool = True,
+    eval_monotonicity: bool = True,
+):
+
+    EXPORT_GEODESICS: bool = True
+
+    model = get_spherical_model(latent_dim=latent_dim)
+    dtype = next(model.parameters()).dtype
+    try_load_pretrained_models(export_path / "spherical_vae", model)
+    model = model.to(device)
+    model.eval()
+
+    regressor = get_model_regressor_trained(
+        export_path=export_path,
+        device=device,
+    ).to(dtype)
+
+    dl_config = DatasetConfig(batch_size=batch_size)
+    shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
+        dataset_config=dl_config,
+        export_path=export_path,
+    )
+    LOGGER.info(f"Generating the images for the quality evaluation...")
+    shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
+        dataset_config=dl_config,
+        latent_dim=latent_dim,
+        device=device,
+        export_path=export_path,
+    )
+
+    LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")
+    LOGGER.info(f"Number of test samples: {len(shepp_logan_test_loader.dataset)}")
+
+    encoder = model.encoder.to(device)
+    decoder = model.decoder.to(device)
+    encoder.eval()
+    decoder.eval()
+
+    solver_params = GeodesicSolverParams(n_pts=config.n_pts, device=device, needs_spline=False)
+    common_params = {
+        "dataloader_train": shepp_logan_trainloader,
+        "dataloader_test": shepp_logan_test_loader,
+        "encoder": encoder,
+        "regressor": regressor,
+        "decoder": decoder,
+        "reference_dataloader_train": shepp_logan_trainloader_vae,
+        "device": device,
+        "export_geodesics": EXPORT_GEODESICS,
+        "solver_params": solver_params,
+    }
+    config_riemann = GeodesicEvalRiemannConfig(
+        export_path=export_path / f"geodesic_evaluation_spherical",
+        cometric=IdentityCoMetric(),
+        **common_params,
+    )
+    if eval_monotonicity:
+        geodesic_evaluation(config_riemann)
+    if eval_quality:
+        evaluate_framework(config_riemann)
+
+
 def evaluate_monotonicity(
     config: SheppLoganPipelineConfig,
     export_path: Path,
@@ -156,7 +223,7 @@ def evaluate_monotonicity(
             dtype,
             common_params,
             cometric_type,
-            no_symmetric
+            no_symmetric,
         )
 
     # Then those that can't use GEORCE because way to slow to compute the cometric
@@ -188,7 +255,7 @@ def evaluate_monotonicity(
             dtype,
             common_params,
             cometric_type,
-            no_symmetric
+            no_symmetric,
         )
 
 

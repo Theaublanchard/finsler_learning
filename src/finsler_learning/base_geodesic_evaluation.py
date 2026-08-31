@@ -18,6 +18,7 @@ from datetime import datetime
 from .lgds import LGDS
 from .models import BaseEncoder, BaseDecoder
 from .utils import kendall_tau, pearson_corr, spearman_corr
+from .spherical_tools import SphericalGeodesicSolver
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class GeodesicSolverParams:
     max_data_count: int = 10_000
     device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pbar: bool = False  # whether to show a progress bar during geodesic computation
+
 
 @dataclass
 class GeodesicEvalRiemannConfig:
@@ -158,13 +160,22 @@ def get_solver(
     encoder: BaseEncoder,
     device: torch.device,
     randers_metric: RandersMetrics = None,
-    is_lgds: bool = False,
+    export_path: Path = None,
 ) -> SolverGraphGEORCE | SolverGraphGEORCEFinsler:
+    is_lgds = export_path is not None and export_path.name == "geodesic_evaluation_lgds"
     if is_lgds:
+        LOGGER.info("Using LGDS for geodesic evaluation.")
         embeds, labels = embed_dataset_w_labels(dataloader_train, encoder, device)
         lgds = LGDS(T=config.n_pts, d=embeds.shape[1])
         lgds.fit(embeds.cpu(), labels.cpu())
         return lgds.to(device)
+    is_spherical = (
+        export_path is not None and export_path.name == "geodesic_evaluation_spherical"
+    )
+    if is_spherical:
+        LOGGER.info("Using spherical geodesic evaluation.")
+        solver = SphericalGeodesicSolver(T=config.n_pts)
+        return solver.to(device)
 
     embeds = embed_dataset(dataloader_train, encoder, device)
     if randers_metric is not None:
@@ -461,7 +472,7 @@ def compute_geodesic_stats(
         encoder=config.encoder,
         device=config.device,
         randers_metric=getattr(config, "randers_metric", None),
-        is_lgds=config.export_path.name == "geodesic_evaluation_lgds",
+        export_path=config.export_path,
     )
 
     if config.export_geodesics:

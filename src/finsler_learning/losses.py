@@ -4,6 +4,7 @@ from pytorch_msssim import MS_SSIM
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 from geodesic_toolbox import CoMetric, IdentityCoMetric, PullBackCometric
+from torchquad import MonteCarlo
 
 
 class Losse(torch.nn.Module):
@@ -366,6 +367,90 @@ class KL_divergence(Losse):
         return kl, self.curr_it_component
 
 
+class KL_divergence_spCauchy(Losse):
+    """Computes the KL divergence between a spherical Cauchy distribution and a uniform distribution on the unit hypersphere.
+
+    We use the method from 'Hyperspherical Variational Autoencoders Using Efficient Spherical Cauchy Distribution'
+    """
+
+    def __init__(self, free_bits: float = 0.0, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.free_bits = free_bits
+
+    def forward(
+        self, mu: Tensor, rho: Tensor, return_components: bool = False
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+        """
+        Computes the KL divergence between a spherical Cauchy distribution and a uniform distribution on the unit hypersphere.
+        For high concentration value we use the approximation from Prop2.
+        Otherwise, we use the integral formulation and compute using quadrature integration.
+
+        Parameters
+        ----------
+        mu : Tensor (B, D)
+            The mean of the spherical Cauchy distribution.
+        rho : Tensor (B, 1)
+            The concentration parameter of the spherical Cauchy distribution.
+
+        Returns
+        -------
+        kl : Tensor (1,)
+            The KL divergence between the spherical Cauchy distribution and the uniform distribution.
+        if return_components is True, also returns a dictionary containing the computed KL divergence and its components.
+        """
+        kl = torch.zeros(mu.shape[0], device=mu.device, dtype=mu.dtype)
+        d = mu.shape[1]
+
+        approx_idx = (rho > 0.9).squeeze(-1)
+        rho_approx = rho[approx_idx]
+        rho_integral = rho[~approx_idx]
+        if rho_approx.numel() > 0:
+            # Compute the KL divergence using the approximation from Prop2 in the paper
+            # The formula is
+            # kl = (d-1) * ( log((1+rho)/(1-rho)) + log(Gamma((d-1)/2)) - log(Gamma(d-1)) )
+            d_half = torch.tensor((d - 1) / 2, device=mu.device, dtype=mu.dtype)
+            d_minus_1 = torch.tensor(d - 1, device=mu.device, dtype=mu.dtype)
+            kl_approx = (d - 1) * (
+                torch.log((1 + rho_approx) / (1 - rho_approx))
+                + torch.lgamma(d_half)
+                - torch.lgamma(d_minus_1)
+            )
+            kl[approx_idx] = kl_approx.squeeze(-1)
+
+        if rho_integral.numel() > 0:
+            # Compute the KL divergence using quadrature integration
+            # We use the formula from Prop1 in the paper
+            # kl = (d-1) log((1+rho)/(1-rho)) + (d-1) \int_0^1 t^(d-2)/(1-t) ( 1 - ((1-rho^2)^/((1+rho^2)-4t rho))^(d-1)/2 ) dt
+            cst = (d - 1) * torch.log((1 + rho_integral) / (1 - rho_integral))
+
+            def integrand(t, rho):
+                t = t.unsqueeze(-1)
+                rho = rho.unsqueeze(0).to(t.device).to(t.dtype)
+                return (
+                    t ** (d - 2)
+                    / (1 - t)
+                    * (1 - ((1 - rho**2) / ((1 + rho)**2 - 4 * t * rho)) ** ((d - 1) / 2))
+                )
+
+            mc = MonteCarlo()
+            integral = mc.integrate(
+                integrand,
+                dim=1,
+                N=1000,
+                integration_domain=[[0, 1]],
+                args=(rho_integral,),
+            ).to(mu.device).to(mu.dtype)
+            kl_integral = cst + (d - 1) * integral
+            kl[~approx_idx] = kl_integral.squeeze(-1)
+
+        self.curr_it_component = {
+            "kl": kl.mean(),
+        }
+        if not return_components:
+            return kl.mean()
+        return kl.mean(), self.curr_it_component
+
+
 class LogPrior(Losse):
     """
     Compute the log likelyhood of a multivariate normal distribution.
@@ -457,6 +542,64 @@ class VAELoss(Losse):
             x_hat, x, log_var_data, return_components=True
         )
         kl_, kl_components = self.kl(mu, log_var_latent, return_components=True)
+        loss = neg_log_prior + self.beta * kl_
+        self.curr_it_component = (
+            {
+                "base_vae_loss": loss,
+            }
+            | self.kl.curr_it_component
+            | self.prior.curr_it_component
+        )
+        if not return_components:
+            return loss
+        return loss, self.curr_it_component
+
+
+class VAELossspCauchy(Losse):
+    """Computes the ELBO loss for a VAE model. Optionnal beta parameter to weight the KL divergence."""
+
+    def __init__(self, beta: float = 1.0, free_bits: float = 0.0):
+        super().__init__()
+        self.beta = beta
+        self.free_bits = free_bits
+        if free_bits > 0:
+            print("Free bits not supported for spherical Cauchy KL divergence.")
+        self.kl = KL_divergence_spCauchy(free_bits=free_bits)
+        self.prior = LogPrior()
+
+    def forward(
+        self,
+        x_hat: Tensor,
+        x: Tensor,
+        mu: Tensor,
+        rho: Tensor,
+        return_components: bool = False,
+    ) -> Tensor | tuple[Tensor, dict[str, Tensor]]:
+        """
+        Parameters
+        ----------
+        x_hat : Tensor (B, ...)
+            The reconstructed input tensor.
+        x : Tensor (B, ...)
+            The original input tensor.
+        mu : Tensor (B, D)
+            The mean of the latent distribution on the unit sphere.
+        rho : Tensor (B, D)
+            The rho parameter of the latent distribution in [0, 1).
+        return_components : bool
+            If True, returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
+
+        Returns
+        -------
+        loss : Tensor (1,)
+            The computed loss value, which is the sum of the reconstruction loss and the KL divergence.
+        if return_components is True, also returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
+        """
+        log_var_data = torch.zeros_like(x_hat)  # Assuming unit variance for the data distribution
+        neg_log_prior, prior_components = self.prior(
+            x_hat, x, log_var_data, return_components=True
+        )
+        kl_, kl_components = self.kl(mu, rho, return_components=True)
         loss = neg_log_prior + self.beta * kl_
         self.curr_it_component = (
             {

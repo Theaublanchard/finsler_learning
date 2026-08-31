@@ -282,7 +282,71 @@ class BaseVAE(BaseStochasticVAE):
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, log_variance
 
+class BaseSphericalVAE(BaseVAE):
+    def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
+        super(BaseSphericalVAE, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
 
+    def mobius_transform(self, mu: Tensor, rho: Tensor, x: Tensor) -> Tensor:
+        """
+        Computes the Mobius transform of a point x on the sphere with respect to a mean mu and concentration rho.
+        """
+        num = x +  rho * mu
+        denom = 1 + 2 * rho * torch.sum(mu * x, dim=-1, keepdim=True) + rho**2
+        y = (1- rho**2) * num / denom + rho * mu
+        return y
+
+    def reparameterize(self, mu: Tensor, rho:Tensor)->torch.Tensor:
+        """
+        Reparameterization trick to sample from a spherical Cauchy distribution 
+        using the Mobius transform reparameterization.
+        
+        Parameters:
+        ----------
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code.
+            Must be on the unit sphere
+        rho : Tensor (batch_size, 1)
+            The concentration parameter of the spherical Cauchy distribution.
+            Must be in the range (0, 1) for valid sampling.
+
+        Returns:
+        -------
+        z : Tensor (batch_size, latent_dim)
+            The sampled latent code on the sphere.
+        """
+        x = torch.randn_like(mu)  # Sample from standard normal distribution
+        x = x / torch.norm(x, dim=-1, keepdim=True)  # Normalize to unit length
+        z = self.mobius_transform(mu, rho, x)  # Apply Mobius transform
+        return z
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Forward pass of the VAE model.
+
+        Parameters:
+        ----------
+        x : Tensor (batch_size, ...)
+            The input tensor to be encoded and decoded.
+
+        Returns:
+        -------
+        x_reconstructed : Tensor (batch_size, ...)
+            The reconstructed tensor obtained from the decoder.
+        mu : Tensor (batch_size, latent_dim)
+            The mean of the latent code obtained from the encoder.
+        rho : Tensor (batch_size, 1)
+            The estimated concentration parameter of the spherical Cauchy distribution.
+        """
+        mu, rho = self.encoder(x)
+        if self.training:
+            z = self.reparameterize(mu, rho)
+        else:
+            z = mu
+        x_reconstructed = self.decoder(z)
+        return x_reconstructed, mu, rho
+    
 #############################
 # MLP models
 #############################
@@ -317,6 +381,37 @@ class Encoder_MLP(BaseEncoder):
         mu = self.mu(z)
         log_variance = self.std(z)
         return mu, log_variance
+
+
+class SphericalEncoder_MLP(BaseEncoder):
+    def __init__(
+        self, input_dim, latent_dim: int, hidden_layers: tuple[int, ...] = (500, 500)
+    ):
+        super().__init__()
+        self.input_dim = input_dim
+        self.input_dim_ = np.prod(input_dim) if isinstance(input_dim, tuple) else input_dim
+        self.latent_dim = latent_dim
+
+        self.layers = [torch.nn.Flatten()]
+        for i, hidden_dim in enumerate(hidden_layers):
+            if i == 0:
+                self.layers.append(nn.Linear(self.input_dim_, hidden_dim))
+            else:
+                self.layers.append(nn.Linear(hidden_layers[i - 1], hidden_dim))
+            self.layers.append(nn.SiLU())
+        self.layers = nn.Sequential(*self.layers)
+
+        self.mu = nn.Linear(hidden_layers[-1], self.latent_dim)
+        self.rho = nn.Linear(hidden_layers[-1], 1)
+
+        self.mu_branch = nn.Sequential(self.layers, self.mu)
+        self.log_variance = nn.Sequential(self.layers, self.rho)
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+        z = self.layers(x)
+        mu = self.mu(z)
+        mu = nn.functional.normalize(mu, p=2, dim=1)
+        rho = self.rho(z).sigmoid()  # Ensure rho is in (0, 1)
+        return mu, rho
 
 
 class Decoder_MLP(BaseDecoder):
@@ -704,6 +799,62 @@ class VAE(BaseVAE):
                 return self.mu_branch(z)
 
         self.encoder = EncoderWrapper(self.encoder_, self.fc_mu, self.fc_logvar)
+        self.decoder = DecoderWrapper(self.decoder_, self.fc_decode)
+
+class SphericalVAE(BaseSphericalVAE):
+    def __init__(
+        self, latent_dim: int, dropout: float = 0.0, in_channels: int = 1, affine: bool = True
+    ):
+        super().__init__()
+        self.latent_dim = latent_dim
+
+        self.encoder_ = ConvEncoder(dropout=dropout, in_channels=in_channels)
+        self.decoder_ = ConvDecoder(dropout=dropout, in_channels=in_channels, affine=affine)
+
+        self.fc_mu = nn.Linear(256 * 16 * 16, latent_dim)
+        self.fc_rho = nn.Linear(256 * 16 * 16, 1)
+        self.fc_decode = nn.Linear(latent_dim, 256 * 16 * 16)
+
+        class EncoderWrapper(BaseEncoder):
+            def __init__(self, encoder, mu, rho):
+                super().__init__()
+                self.encoder = encoder
+                self.mu = mu
+                self.logvar = rho
+
+            def mu_branch(self, x):
+                z = self.encoder(x)
+                z = torch.flatten(z, start_dim=1)
+                mu = self.mu(z)
+                mu = torch.nn.functional.normalize(mu, p=2, dim=1)
+                return mu
+
+            def log_var_branch(self, x):
+                z = self.encoder(x)
+                z = torch.flatten(z, start_dim=1)
+                logvar = self.logvar(z).sigmoid()  # Ensure rho is in (0, 1)
+                return logvar
+
+            def forward(self, x):
+                z = self.encoder(x)
+                z = torch.flatten(z, start_dim=1)
+                mu = self.mu(z)
+                mu = torch.nn.functional.normalize(mu, p=2, dim=1)
+                rho = self.logvar(z).sigmoid()  # Ensure rho is in (0, 1)
+                return mu, rho
+
+        class DecoderWrapper(BaseDecoder):
+            def __init__(self, decoder, fc_decode):
+                super().__init__()
+                self.decoder = decoder
+                self.unflatten = nn.Unflatten(dim=-1, unflattened_size=(256, 16, 16))
+                self.fc_decode = fc_decode
+                self.mu_branch = nn.Sequential(self.fc_decode, self.unflatten, self.decoder)
+
+            def forward(self, z):
+                return self.mu_branch(z)
+
+        self.encoder = EncoderWrapper(self.encoder_, self.fc_mu, self.fc_rho)
         self.decoder = DecoderWrapper(self.decoder_, self.fc_decode)
 
 

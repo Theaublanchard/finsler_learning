@@ -15,6 +15,77 @@ from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
 )
 
 
+def evaluate_extrapolation_spherical(
+    export_path: Path,
+    latent_dim: int,
+    device: torch.device,
+    batch_size: int,
+    alpha: float = 1.0,
+    ema_moment: float = 0.9,
+    eval_quality: bool = False,
+    eval_extrapolation: bool = True,
+    n_pts: int = 100,
+) -> None:
+    model = get_spherical_model(latent_dim=latent_dim)
+    dtype = next(model.parameters()).dtype
+    try_load_pretrained_models(export_path/"spherical_vae", model)
+    model = model.to(device)
+    model.eval()
+
+    regressor = get_model_regressor_trained(
+        export_path=export_path,
+        device=device,
+    ).to(dtype)
+
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
+        dataset_config=dl_config,
+        export_path=export_path,
+    )
+
+    shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
+        dataset_config=dl_config,
+        latent_dim=latent_dim,
+        device=device,
+        export_path=export_path,
+    )
+
+    LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")
+    LOGGER.info(f"Number of test samples: {len(shepp_logan_test_loader.dataset)}")
+
+    encoder = model.encoder.to(device)
+    decoder = model.decoder.to(device)
+    encoder.eval()
+    decoder.eval()
+
+    common_params = {
+        "latent_dim": latent_dim,
+        "dataloader_train": shepp_logan_trainloader,
+        "dataloader_test": shepp_logan_test_loader,
+        "encoder": encoder,
+        "decoder": decoder,
+        "regressor": regressor,
+        "device": device,
+        "reference_dataloader_train": shepp_logan_trainloader_vae,
+        "alpha": alpha,
+        "moving_avg_momentum": ema_moment,
+        "T": n_pts,
+    }
+
+    LOGGER.info(f"- Evaluating spherical extrapolation...")
+    config_riemann = ExtrapolationEvalRiemannConfig(
+        export_path=export_path / f"extrapolation_evaluation_spherical",
+        cometric=IdentityCoMetric(),
+        **common_params,
+    )
+    if eval_extrapolation:
+        extrapolation_evaluation(config_riemann)
+    if eval_quality:
+        evaluate_extrapolated_framework(config_riemann)
+
+
 def evaluate_extrapolation(
     export_path: Path,
     latent_dim: int,
