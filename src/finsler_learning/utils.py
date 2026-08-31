@@ -227,9 +227,9 @@ def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bo
         rel_val = (t_pred[-1] - t_pred[0]) / t_pred[0] * 100
 
         axes[i, 0].plot(t_pred, color="blue")
-        axes[i, 0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=12, ha="left", va="top", transform=axes[i, 0].transAxes)
+        axes[i, 0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=14, ha="left", va="top", transform=axes[i, 0].transAxes)
         if relative_variation:
-            axes[i, 0].text(0., 0.7, f"RV = {rel_val:.2f}%", fontsize=12, ha="left", va="top", transform=axes[i, 0].transAxes)
+            axes[i, 0].text(0., 0.7, f"RV = {rel_val:.0f}%", fontsize=14, ha="left", va="top", transform=axes[i, 0].transAxes)
         axes[i, 0].set_xticks([])
         axes[i, 0].set_yticks([])
         axes[i, 0].set_ylabel(f"{method_name}",fontsize=12)
@@ -239,3 +239,46 @@ def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bo
     fig.tight_layout()
     return fig, axes
 
+def plot_single_traj(all_res_method:dict,idx:int=0, relative_variation:bool=False)->tuple[plt.Figure,np.ndarray]:
+    """
+    Plots a single trajectory for a given method.
+
+    Parameters: 
+    all_res_method : dict
+        A dictionary containing the results for the method.
+        all_res_method = {
+            "x_hat": Tensor (B, T, C, H, W),
+            "t_traj": Tensor (B, T),
+            "kendall_tau": Tensor (B,)
+        }
+    idx : int
+        The index of the sample to plot.
+    relative_variation : bool
+        Whether to display the relative variation of the t_traj
+
+    Returns:
+    fig : matplotlib.figure.Figure
+        The figure containing the plots.
+    axes : numpy.ndarray
+        The axes of the figure.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(20, 2), width_ratios=[0.1, 1])
+    x_hat = all_res_method["x_hat"] # (B, T, C, H, W)
+    x_plot = prepare_images(x_hat, n_pts=10)
+    x_plot = x_plot[idx] # (H, W, C)
+    kendall_tau = all_res_method["kendall_tau"][idx]
+    t_pred = all_res_method["t_traj"][idx]
+    rel_val = (t_pred[-1] - t_pred[0]) / t_pred[0] * 100
+
+    axes[0].plot(t_pred, color="blue")
+    axes[0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=14, ha="left", va="top", transform=axes[0].transAxes)
+    if relative_variation:
+        axes[0].text(0., 0.7, f"RV = {rel_val:.0f}%", fontsize=14, ha="left", va="top", transform=axes[0].transAxes)
+    axes[0].set_xticks([])
+    axes[0].set_yticks([])
+    axes[0].set_ylabel(f"Sequential factors",fontsize=14)
+    axes[1].imshow(x_plot, cmap="gray", aspect="equal")
+    axes[1].set_anchor("W")
+    axes[1].axis("off")
+    fig.tight_layout()
+    return fig, axes
