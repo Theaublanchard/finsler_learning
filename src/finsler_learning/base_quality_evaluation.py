@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from torchmetrics.multimodal import CLIPScore
+from torchmetrics.multimodal.clip_score import CLIPScore
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics.image.kid import KernelInceptionDistance
 from torcheval.metrics.image.fid import FIDInceptionV3

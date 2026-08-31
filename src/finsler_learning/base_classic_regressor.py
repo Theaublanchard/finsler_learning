@@ -79,7 +79,7 @@ def get_leftmost_ellipse_mask(mask: np.array, disk_size=12) -> np.array:
         raise ValueError("Input mask is empty")
     selem = morphology.disk(disk_size)
     # sometimes the ellipses are connected
-    mask = morphology.binary_erosion(mask, selem)
+    mask = morphology.erosion(mask, selem)
 
     labeled_mask = measure.label(mask)
     regions = measure.regionprops(labeled_mask, cache=False)
@@ -91,7 +91,7 @@ def get_leftmost_ellipse_mask(mask: np.array, disk_size=12) -> np.array:
     leftmost_mask = labeled_mask == leftmost_region.label
 
     # Dilate back to original size
-    leftmost_mask = morphology.binary_dilation(leftmost_mask, selem)
+    leftmost_mask = morphology.dilation(leftmost_mask, selem)
     return leftmost_mask
 
 
@@ -112,8 +112,8 @@ def get_ellipsis_area(mask: np.array) -> float:
         # Pick the largest region
         regions = sorted(regions, key=lambda r: r.area, reverse=True)
     region = regions[0]
-    a = region.major_axis_length / 2
-    b = region.minor_axis_length / 2
+    a = region.axis_major_length / 2
+    b = region.axis_minor_length / 2
     area = np.pi * a * b
     return area
 

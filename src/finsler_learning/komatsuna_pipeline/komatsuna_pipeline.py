@@ -492,8 +492,7 @@ def parse_args() -> KomatsunaPipelineConfig:
     )
     return config
 
-
-if __name__ == "__main__":
+def cli():
     start_time = datetime.now()
     config = parse_args()
     main(cfg=config)
@@ -503,3 +502,7 @@ if __name__ == "__main__":
     # Log to the same logger that was set up in main
     LOGGER.info(f"Pipeline completed successfully!")
     LOGGER.info(f"Total execution time: {duration}")
+
+
+if __name__ == "__main__":
+    cli()

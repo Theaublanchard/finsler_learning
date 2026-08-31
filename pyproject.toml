@@ -1,8 +1,44 @@
-[build-system]
-requires = ["hatchling >= 1.26"]
-build-backend = "hatchling.build"
-
 [project]
-name = "finsler_learning"
+name = "finsler-learning"
 version = "0.1.0"
 description = "Learning Finsler metric for latent space exploration"
+readme = "README.md"
+authors = [
+    { name = "Theau Blanchard", email = "theau.blanchard@inria.fr" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "einops>=0.8.2",
+    "geodesic-toolbox",
+    "geomloss>=0.3.1",
+    "kmedoids>=0.5.5",
+    "matplotlib>=3.11.1",
+    "monai>=1.6.0",
+    "nibabel>=5.4.2",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pytorch-fwd",
+    "pytorch-msssim>=1.0.0",
+    "scikit-image>=0.26.0",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.1",
+    "seaborn>=0.13.2",
+    "torch>=2.13.0",
+    "torcheval>=0.0.7",
+    "torchmetrics>=1.9.0",
+    "torchquad>=0.6.0",
+    "torchvision>=0.28.0",
+    "tqdm>=4.70.0",
+]
+
+[project.scripts]
+shepplogan-pipeline = "finsler_learning.shepplogan_pipeline.shepplogan_pipeline:cli"
+komatsuna-pipeline = "finsler_learning.komatsuna_pipeline.komatsuna_pipeline:cli"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+geodesic-toolbox = { path = "/home/tblanchard/phd/geodesic_toolbox", editable = true }
+pytorch-fwd = { path = "../PyTorch-FWD", editable = true }
