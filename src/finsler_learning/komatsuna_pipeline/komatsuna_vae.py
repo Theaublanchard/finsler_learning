@@ -91,10 +91,19 @@ class CondVAELoss(Losse):
         loss = loss_vae + self.lbda * loss_ms_ssim
 
         if self.l1_weight is not None and self.l1_weight > 0.0:
-            loss_l1 = torch.nn.functional.l1_loss(x_recon, x, reduction="sum")
-            loss_l1 = (
-                loss_l1 / x.numel()
-            )  # normalize by number of pixels to keep it on the same scale as other losses
+            # force the l1 to focus on the non-white pixels, since the white pixels are not informative and can dominate the loss
+            # x assumed normalized to [0, 1]
+            # white pixels have all channels close to 1
+            distance_from_white = 1.0 - x.mean(dim=1, keepdim=True)
+            mask = distance_from_white.clamp(0, 1)
+            weight = 1.0 + 10.0 * mask
+
+            loss_l1 = (weight * (x - x_recon).abs()).mean()
+
+            # loss_l1 = torch.nn.functional.l1_loss(x_recon, x, reduction="sum")
+            # loss_l1 = (
+            #     loss_l1 / x.numel()
+            # )  # normalize by number of pixels to keep it on the same scale as other losses
             loss += self.l1_weight * loss_l1
             self.curr_it_component = self.curr_it_component | {"l1": loss_l1}
         if self.lpip_weight is not None and self.lpip_weight > 0.0:
@@ -121,6 +130,7 @@ def train_vae(
     lpip_weight: float,
     n_epochs: int,
     batch_size: int,
+    l1_weight: float,
     device: torch.device = DEVICE,
 ) -> tuple[torch.nn.Module, list, list]:
     dl_config = DatasetConfig(
@@ -143,7 +153,7 @@ def train_vae(
         T_max=n_epochs,
         eta_min=1e-6,
     )
-    loss_fn = CondVAELoss(beta=beta, lbda=lbda, lpip_weight=lpip_weight)
+    loss_fn = CondVAELoss(beta=beta, lbda=lbda, lpip_weight=lpip_weight,l1_weight=l1_weight)
     task_config = VAEConfig(
         n_epochs=n_epochs,
         dataloader=komatsuna_train_loader,

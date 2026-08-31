@@ -184,6 +184,7 @@ def main(cfg: KomatsunaPipelineConfig):
                 weight_decay=cfg.wd_vae,
                 beta=cfg.beta,
                 lbda=cfg.lbda,
+                l1_weight=cfg.l1_weight,
                 lpip_weight=cfg.lpip_weight,
                 n_epochs=cfg.n_epochs_vae,
                 batch_size=cfg.b_size_vae,
@@ -309,6 +310,12 @@ def add_vae_arguments(parser: ArgumentParser):
         type=float,
         default=0.0,
         help="Weight for LPIP loss in VAE",
+    )
+    parser.add_argument(
+        "--l1_weight",
+        type=float,
+        default=0.0,
+        help="Weight for L1 loss in VAE",
     )
 
 
@@ -450,6 +457,7 @@ def parse_args() -> KomatsunaPipelineConfig:
         beta=args.beta,
         lbda=args.lbda,
         lpip_weight=args.lpip_weight,
+        l1_weight=args.l1_weight,
         # NNUNet parameters
         n_epochs_nnunet=args.n_epochs_nnunet,
         # Randers parameters

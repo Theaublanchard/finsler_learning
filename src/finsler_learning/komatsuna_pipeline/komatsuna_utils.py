@@ -55,6 +55,7 @@ class KomatsunaPipelineConfig:
     beta: float
     lbda: float
     lpip_weight: float
+    l1_weight: float
 
     # NNUNet training parameters
     n_epochs_nnunet: int
