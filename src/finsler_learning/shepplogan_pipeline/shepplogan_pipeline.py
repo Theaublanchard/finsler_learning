@@ -36,18 +36,14 @@ from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import (
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     evaluate_monotonicity,
     get_model_regressor_trained,
-    evaluate_monotonicity_spherical,
 )
 from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
     evaluate_extrapolation,
-    evaluate_extrapolation_spherical,
 )
 from finsler_learning.shepplogan_pipeline.shepplogan_vae_stochastic import (
     train_vae_log_var_decoder_branch,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_vae_spherical import (
-    train_spherical_vae,
-)
+
 
 
 ##################################################################
@@ -205,24 +201,11 @@ def main(cfg: SheppLoganPipelineConfig):
                 beta=cfg.beta,
                 lbda=cfg.lbda,
                 lpip_weight=cfg.lpip_weight,
-                n_epochs=cfg.n_epochs_vae,
+                n_epochs=cfg.n_epochs_vae // 2,
                 batch_size=cfg.b_size_vae,
                 label_noise=cfg.label_noise,
                 K=cfg.K_cometric,
                 kappa=1.0,
-                device=cfg.device,
-            )
-            train_spherical_vae(
-                latent_dim=cfg.latent_dim,
-                export_path=cfg.export_path,
-                lr=cfg.lr_vae,
-                weight_decay=cfg.wd_vae,
-                beta=cfg.beta,
-                lbda=cfg.lbda,
-                lpip_weight=cfg.lpip_weight,
-                n_epochs=cfg.n_epochs_vae,
-                batch_size=cfg.b_size_vae,
-                label_noise=cfg.label_noise,
                 device=cfg.device,
             )
 
@@ -267,57 +250,36 @@ def main(cfg: SheppLoganPipelineConfig):
 
         if cfg.eval_interpolation or cfg.eval_quality_interpolation:
             LOGGER.info("Evaluating interpolation and/or quality...")
-            # evaluate_monotonicity(
-            #     config=cfg,
-            #     export_path=cfg.export_path,
-            #     latent_dim=cfg.latent_dim,
-            #     device=cfg.device,
-            #     batch_size=cfg.b_size_evaluation,
-            #     omega_strength=cfg.omega_strength,
-            #     use_dummy_accuracy=cfg.use_dummy_accuracy,
-            #     k=cfg.K_cometric,
-            #     eval_quality=cfg.eval_quality_interpolation,
-            #     eval_monotonicity=cfg.eval_interpolation,
-            #     no_symmetric=cfg.no_symmetric,
-            # )
-            LOGGER.info("Evaluating interpolation and/or quality on the hypersphere...")
-            evaluate_monotonicity_spherical(
+            evaluate_monotonicity(
                 config=cfg,
                 export_path=cfg.export_path,
                 latent_dim=cfg.latent_dim,
                 device=cfg.device,
                 batch_size=cfg.b_size_evaluation,
+                omega_strength=cfg.omega_strength,
+                use_dummy_accuracy=cfg.use_dummy_accuracy,
+                k=cfg.K_cometric,
                 eval_quality=cfg.eval_quality_interpolation,
                 eval_monotonicity=cfg.eval_interpolation,
+                no_symmetric=cfg.no_symmetric,
             )
 
         if cfg.eval_extrapolation or cfg.eval_quality_extrapolation:
             LOGGER.info("Evaluating extrapolation...")
-            # evaluate_extrapolation(
-            #     export_path=cfg.export_path,
-            #     latent_dim=cfg.latent_dim,
-            #     device=cfg.device,
-            #     batch_size=cfg.b_size_evaluation,
-            #     omega_strength=cfg.omega_strength,
-            #     use_dummy_accuracy=cfg.use_dummy_accuracy,
-            #     k=cfg.K_cometric,
-            #     eta=cfg.eta,
-            #     alpha=cfg.alpha,
-            #     ema_moment=cfg.ema_moment,
-            #     eval_quality=cfg.eval_quality_extrapolation,
-            #     eval_extrapolation=cfg.eval_extrapolation,
-            #     no_symmetric=cfg.no_symmetric,
-            #     n_pts=cfg.n_pts,
-            # )
-            evaluate_extrapolation_spherical(
+            evaluate_extrapolation(
                 export_path=cfg.export_path,
                 latent_dim=cfg.latent_dim,
                 device=cfg.device,
                 batch_size=cfg.b_size_evaluation,
+                omega_strength=cfg.omega_strength,
+                use_dummy_accuracy=cfg.use_dummy_accuracy,
+                k=cfg.K_cometric,
+                eta=cfg.eta,
                 alpha=cfg.alpha,
                 ema_moment=cfg.ema_moment,
                 eval_quality=cfg.eval_quality_extrapolation,
                 eval_extrapolation=cfg.eval_extrapolation,
+                no_symmetric=cfg.no_symmetric,
                 n_pts=cfg.n_pts,
             )
 
