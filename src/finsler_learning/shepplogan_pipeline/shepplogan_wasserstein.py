@@ -2,15 +2,17 @@ from argparse import ArgumentParser
 import json
 from pathlib import Path
 import logging
-from base_wasserstein_learning import WassersteinConfig
-from base_wasserstein_learning import main as wasserstein_main
-from shepplogan_pipeline import (
+from finsler_learning.base_wasserstein_learning import WassersteinConfig
+from finsler_learning.base_wasserstein_learning import main as wasserstein_main
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import (
     SheppLoganPipelineConfig,
     get_models,
     try_load_pretrained_models,
-    get_model_regressor,
     DatasetConfig,
     get_shepplogan_dataloaders,
+)
+from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
+    get_model_regressor_trained,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,21 +55,19 @@ def load_base_config(base_path: Path) -> SheppLoganPipelineConfig:
 
 
 def load_pretrained_models(config: SheppLoganPipelineConfig):
-    model = get_models(latent_dim=config.latent_dim, use_cond_vae=config.use_cond_vae)
+    model = get_models(latent_dim=config.latent_dim)
     dtype = next(model.parameters()).dtype
     try_load_pretrained_models(config.export_path, model)
     model = model.to(config.device)
     model.eval()
 
-    regressor = get_model_regressor(
+    regressor = get_model_regressor_trained(
         export_path=config.export_path,
         device=config.device,
     ).to(dtype)
 
     dl_config = DatasetConfig(
         batch_size=config.b_size_evaluation,
-        return_class=config.use_cond_vae,
-        remap_classes=config.use_cond_vae,
     )
     shepp_logan_train_loader, shepp_logan_test_loader = get_shepplogan_dataloaders(
         dataset_config=dl_config,
@@ -104,11 +104,16 @@ def main(args):
         lr=args.lr,
         n_epochs=args.n_epochs,
         device=config.device,
+        T=config.n_pts,
     )
 
     wasserstein_main(config_W2)
 
 
-if __name__ == "__main__":
+def cli():
     args = parse_args()
     main(args)
+
+
+if __name__ == "__main__":
+    cli()

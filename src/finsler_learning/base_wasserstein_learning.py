@@ -3,7 +3,7 @@ import torch
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from torch import Tensor
+from torch import Tensor, clone
 from pathlib import Path
 from typing import Dict
 from tqdm import tqdm
@@ -265,6 +265,7 @@ def train_potential(
     bin_edges = frequence_bins(t_train, n_bins=config.n_bins)
 
     optim = torch.optim.Adam(J.parameters(), lr=config.lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=config.n_epochs, eta_min=1e-5)
 
     losses_train = []
     losses_test = []
@@ -274,6 +275,7 @@ def train_potential(
         loss_train = global_loss(z_train, t_train, J, bin_edges, loss_fn, device=config.device)
         loss_train.backward()
         optim.step()
+        scheduler.step()
 
         loss_test = global_loss(z_test, t_test, J, bin_edges, loss_fn, device=config.device)
         pbar.set_postfix({"loss": loss_train.item(), "loss_test": loss_test.item()})
@@ -298,6 +300,9 @@ def plot_export_losses(losses_train, losses_test, export_path: Path):
     export_path : Path
         The path to export the plot
     """
+    if isinstance(losses_train, list) or isinstance(losses_test, list):
+        losses_train = torch.tensor(losses_train).detach().clone()
+        losses_test = torch.tensor(losses_test).detach().clone()
     fig, ax = plt.subplots(1, 1, figsize=(8, 6))
     ax.plot(losses_train, label="Train Loss")
     ax.plot(losses_test, label="Test Loss")
@@ -309,6 +314,7 @@ def plot_export_losses(losses_train, losses_test, export_path: Path):
         ax.set_yscale("log")
     plt.tight_layout()
     plt.savefig(export_path / "losses_plot.png")
+    plt.close(fig)
 
 
 def export_potential_training_results(J, losses_train, losses_test, config: WassersteinConfig):
@@ -349,25 +355,17 @@ def sample_t_max(t_train: torch.Tensor, t_0: torch.Tensor):
     -----------
     t_train : torch.Tensor (N,)
         The training time points
-    t_0 : torch.Tensor (M,)
+    t_0 : torch.Tensor (B,)
         The time points to find the maximum for
 
     Returns:
     --------
-    t_max : torch.Tensor (M,)
-        The maximum time points in t_train for each time point in t_0
+    t_sampled : torch.Tensor (B,)
+        The sampled time points in the range [t_0, t_max]
     """
-    t_max = []
-    for t in t_0:
-        t_max_i = t_train[t_train >= t].max()
-        t_max.append(t_max_i)
-    t_max = torch.stack(t_max).to(t_0.device)
-    # return t_max
-    t_sampled = []
-    for t, t_max_i in zip(t_0, t_max):
-        t_sampled_i = torch.rand(1, device=t_0.device) * (t_max_i - t) + t
-        t_sampled.append(t_sampled_i)
-    t_sampled = torch.stack(t_sampled).squeeze()
+    t_max = t_train.max()
+    t_sampled = torch.rand_like(t_0) * (t_max - t_0) + t_0
+    t_sampled = torch.where(t_sampled > t_max, t_max * torch.ones_like(t_sampled), t_sampled)
     return t_sampled
 
 
@@ -519,36 +517,26 @@ def extrapolation_evaluation_gradient_flow(
         config, config.test_loader, J, t_train
     )
 
-    LOGGER.info("Computing extrapolation and monotonicity for train set...")
-    traj_train, res_train, t_pred_train = compute_extrapolation_and_monotonicity(
-        config, config.train_loader, J, t_train
-    )
-
     summary_test = get_metrics_summary(res_test)
-    summary_train = get_metrics_summary(res_train)
     LOGGER.info("Extrapolation evaluation results:")
     for name in ALL_METRICS.keys():
         LOGGER.info(
             f"{name.upper()}"
             f" - Test: mean={summary_test[name]['mean']:.4f} +- {summary_test[name]['std']:.4f}, "
-            f" - Train: mean={summary_train[name]['mean']:.4f} +- {summary_train[name]['std']:.4f}"
         )
 
     LOGGER.info("Exporting results...")
     export_extrapolation_evaluation(
         config,
         res_test,
-        res_train,
     )
     export_extrapolated_trajectories(
         config,
         traj_test,
-        traj_train,
     )
     export_extrapolated_time(
         config,
         t_pred_test,
-        t_pred_train,
     )
 
     end_time = datetime.now()
@@ -556,7 +544,7 @@ def extrapolation_evaluation_gradient_flow(
     LOGGER.info(
         f"Extrapolation evaluation completed in {elapsed_time} for {config.export_path}"
     )
-    return traj_test, traj_train, t_pred_test, t_pred_train
+    return traj_test, t_pred_test
 
 
 def main(config: WassersteinConfig):
