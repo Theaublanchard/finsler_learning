@@ -23,7 +23,32 @@ def parse_args():
         "--config_path",
         type=Path,
         required=True,
-        help="Path to the file shepplogan_pipeline_config.json",
+        help="Path to the folder containing the shepplogan_pipeline_config.json",
+    )
+    parser.add_argument(
+        "--skip_vae",
+        action="store_true",
+        help="Skip training the VAE and use the pretrained model",
+    )
+    parser.add_argument(
+        "--eval_interpolation",
+        action="store_true",
+        help="Evaluate interpolation on the hypersphere",
+    )
+    parser.add_argument(
+        "--eval_quality_interpolation",
+        action="store_true",
+        help="Evaluate quality of interpolation on the hypersphere",
+    )
+    parser.add_argument(
+        "--eval_extrapolation",
+        action="store_true",
+        help="Evaluate extrapolation on the hypersphere",
+    )
+    parser.add_argument(
+        "--eval_quality_extrapolation",
+        action="store_true",
+        help="Evaluate quality of extrapolation on the hypersphere",
     )
     return parser.parse_args()
 
@@ -90,19 +115,25 @@ def main(cfg: SheppLoganPipelineConfig):
         raise e
 
 
-def load_config_from_json(config_path: Path) -> SheppLoganPipelineConfig:
+def load_config_from_json(args) -> SheppLoganPipelineConfig:
+    config_path = Path(args.config_path) / "shepplogan_pipeline_config.json"
     with open(config_path, "r") as f:
         config_dict = json.load(f)
     cfg = SheppLoganPipelineConfig(**config_dict)
     # Enforce some types
     cfg.export_path = Path(cfg.export_path)
     cfg.device = torch.device(cfg.device)
+    cfg.skip_vae = args.skip_vae
+    cfg.eval_quality_interpolation = args.eval_quality_interpolation
+    cfg.eval_quality_extrapolation = args.eval_quality_extrapolation
+    cfg.eval_interpolation = args.eval_interpolation
+    cfg.eval_extrapolation = args.eval_extrapolation
     return cfg
 
 
 def cli():
     args = parse_args()
-    cfg = load_config_from_json(args.config_path)
+    cfg = load_config_from_json(args)
     main(cfg)
 
 
