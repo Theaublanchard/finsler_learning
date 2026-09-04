@@ -371,12 +371,25 @@ class KL_divergence_spCauchy(Losse):
     """Computes the KL divergence between a spherical Cauchy distribution and a uniform distribution on the unit hypersphere.
 
     We use the method from 'Hyperspherical Variational Autoencoders Using Efficient Spherical Cauchy Distribution'
+
+    Parameters
+    ----------
+    N : int
+            The number of quadrature points to use for the integral approximation.
+    threshold : float
+            The threshold value for the concentration parameter to switch between the approximation and the integral formulation.
+    free_bits : float
+            Not used in this implementation, but kept for consistency with other loss classes.
     """
 
-    def __init__(self, free_bits: float = 0.0, *args, **kwargs):
+    def __init__(
+        self, N: int = 100, threshold: float = 0.9, free_bits: float = 0.0, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
-        self.free_bits = free_bits
         self.integrator = GaussLegendre()
+        self.N = N
+        self.threshold = threshold
+        self.free_bits = free_bits
 
     def kl_approximation(self, mu: Tensor, rho: Tensor) -> Tensor:
         """
@@ -439,12 +452,12 @@ class KL_divergence_spCauchy(Losse):
         # data_type = "float32" if mu.dtype == torch.float32 else "float64"
         # is_gpu = mu.device.type == "cuda"
         # set_up_backend("torch",data_type=data_type, torch_enable_cuda=is_gpu)
-        integrator = GaussLegendre()    
+        integrator = GaussLegendre()
         integral = (
             integrator.integrate(
                 integrand,
                 dim=1,
-                N=100,
+                N=self.N,
                 integration_domain=[[0, 1]],
                 args=(rho,),
             )
@@ -478,7 +491,7 @@ class KL_divergence_spCauchy(Losse):
         kl = torch.zeros(mu.shape[0], device=mu.device, dtype=mu.dtype)
         d = mu.shape[1]
 
-        approx_idx = (rho > 0.9).squeeze(-1)
+        approx_idx = (rho > self.threshold).squeeze(-1)
         rho_approx = rho[approx_idx]
         rho_integral = rho[~approx_idx]
         if rho_approx.numel() > 0:
