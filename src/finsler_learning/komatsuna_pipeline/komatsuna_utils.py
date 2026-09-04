@@ -25,6 +25,7 @@ from finsler_learning import (
     StochasticVAE,
     KOMATSUNADataset,
     WarpedDecoder,
+    SphericalVAE,
 )
 
 #################################################################
@@ -126,6 +127,9 @@ def get_models(latent_dim: int) -> VAE:
     model = VAE(latent_dim=latent_dim, affine=True, in_channels=3)
     return model
 
+def get_spherical_model(latent_dim: int) -> VAE:
+    model = SphericalVAE(latent_dim=latent_dim, affine=True, in_channels=3)
+    return model
 
 def get_stochastic_models(
     latent_dim: int,
@@ -217,14 +221,12 @@ def get_komatsuna_dataloaders(
         batch_size=dataset_config.batch_size,
         shuffle=True,
         num_workers=dataset_config.n_workers,
-        pin_memory=True,
     )
     komatsuna_test_loader = DataLoader(
         test_dataset,
         batch_size=dataset_config.batch_size,
         shuffle=False,
         num_workers=dataset_config.n_workers,
-        pin_memory=True,
     )
     return komatsuna_train_loader, komatsuna_test_loader
 
