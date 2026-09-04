@@ -4,7 +4,7 @@ from pytorch_msssim import MS_SSIM
 from torchmetrics import MeanMetric
 from tqdm import tqdm
 from geodesic_toolbox import CoMetric, IdentityCoMetric, PullBackCometric
-from torchquad import MonteCarlo
+from torchquad import GaussLegendre, set_up_backend
 
 
 class Losse(torch.nn.Module):
@@ -376,6 +376,83 @@ class KL_divergence_spCauchy(Losse):
     def __init__(self, free_bits: float = 0.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.free_bits = free_bits
+        self.integrator = GaussLegendre()
+
+    def kl_approximation(self, mu: Tensor, rho: Tensor) -> Tensor:
+        """
+        Computes the KL divergence between a spherical Cauchy distribution and a uniform distribution on the unit hypersphere using the approximation from Prop2 in the paper.
+        This is valid for high concentration values (rho > 0.9).
+        KL = (d-1) * ( log((1+rho)/(1-rho)) + log(Gamma((d-1)/2)) - log(Gamma(d-1)) )
+
+        Parameters
+        ----------
+        mu : Tensor (B, D)
+            The mean of the spherical Cauchy distribution.
+        rho : Tensor (B, 1)
+            The concentration parameter of the spherical Cauchy distribution.
+
+        Returns
+        -------
+        kl : Tensor (1,)
+            The KL divergence between the spherical Cauchy distribution and the uniform distribution.
+        """
+        d = mu.shape[1]
+        d_half = torch.tensor((d - 1) / 2, device=mu.device, dtype=mu.dtype)
+        d_minus_1 = torch.tensor(d - 1, device=mu.device, dtype=mu.dtype)
+        kl_approx = (d - 1) * (torch.log1p(rho) - torch.log1p(-rho))
+        kl_approx += (d - 1) * (torch.digamma(d_half) - torch.digamma(d_minus_1))
+        return kl_approx.squeeze(-1)
+
+    def kl_integral(self, mu: Tensor, rho: Tensor) -> Tensor:
+        """
+        Computes the KL divergence between a spherical Cauchy distribution and a uniform distribution on the unit hypersphere using the integral formulation from Prop1 in the paper.
+        This is valid for low concentration values (rho <= 0.9).
+        KL = (d-1) log((1-rho)/(1+rho)) + (d-1) int_0^1 t^(d-2)/(1-t) ( 1 - ((1-rho^2)^/((1+rho^2)-4t rho))^(d-1)/2 ) dt
+
+        Parameters
+        ----------
+        mu : Tensor (B, D)
+            The mean of the spherical Cauchy distribution.
+        rho : Tensor (B, 1)
+            The concentration parameter of the spherical Cauchy distribution.
+
+        Returns
+        -------
+        kl : Tensor (1,)
+            The KL divergence between the spherical Cauchy distribution and the uniform distribution.
+        """
+        d = mu.shape[1]
+        cst = (d - 1) * (torch.log1p(-rho) - torch.log1p(rho))
+
+        def integrand(t, rho):
+            t = t.unsqueeze(-1)
+            # rho = rho.unsqueeze(0)
+            # very ugly IO overhead but torchquad does weird stuff with generators
+            rho = rho.unsqueeze(0).to(t.device).to(t.dtype)
+            alpha = (d - 1) / 2
+            denom = (1 + rho).square() - 4 * t * rho
+            log_ratio = 2 * torch.log1p(-rho) - torch.log(denom)
+            # We use this because torch.pow(denom, -alpha) can be numerically unstable for small denom and large alpha.
+            numerator = -torch.expm1(alpha * log_ratio)
+            return t.pow(d - 2) * numerator / (1 - t)
+
+        # data_type = "float32" if mu.dtype == torch.float32 else "float64"
+        # is_gpu = mu.device.type == "cuda"
+        # set_up_backend("torch",data_type=data_type, torch_enable_cuda=is_gpu)
+        integrator = GaussLegendre()    
+        integral = (
+            integrator.integrate(
+                integrand,
+                dim=1,
+                N=100,
+                integration_domain=[[0, 1]],
+                args=(rho,),
+            )
+            .to(mu.device)
+            .to(mu.dtype)
+        )
+        kl_integral = cst + (d - 1) * integral
+        return kl_integral.squeeze(-1)
 
     def forward(
         self, mu: Tensor, rho: Tensor, return_components: bool = False
@@ -405,43 +482,9 @@ class KL_divergence_spCauchy(Losse):
         rho_approx = rho[approx_idx]
         rho_integral = rho[~approx_idx]
         if rho_approx.numel() > 0:
-            # Compute the KL divergence using the approximation from Prop2 in the paper
-            # The formula is
-            # kl = (d-1) * ( log((1+rho)/(1-rho)) + log(Gamma((d-1)/2)) - log(Gamma(d-1)) )
-            d_half = torch.tensor((d - 1) / 2, device=mu.device, dtype=mu.dtype)
-            d_minus_1 = torch.tensor(d - 1, device=mu.device, dtype=mu.dtype)
-            kl_approx = (d - 1) * (
-                torch.log((1 + rho_approx) / (1 - rho_approx))
-                + torch.lgamma(d_half)
-                - torch.lgamma(d_minus_1)
-            )
-            kl[approx_idx] = kl_approx.squeeze(-1)
-
+            kl[approx_idx] = self.kl_approximation(mu[approx_idx], rho_approx)
         if rho_integral.numel() > 0:
-            # Compute the KL divergence using quadrature integration
-            # We use the formula from Prop1 in the paper
-            # kl = (d-1) log((1+rho)/(1-rho)) + (d-1) \int_0^1 t^(d-2)/(1-t) ( 1 - ((1-rho^2)^/((1+rho^2)-4t rho))^(d-1)/2 ) dt
-            cst = (d - 1) * torch.log((1 + rho_integral) / (1 - rho_integral))
-
-            def integrand(t, rho):
-                t = t.unsqueeze(-1)
-                rho = rho.unsqueeze(0).to(t.device).to(t.dtype)
-                return (
-                    t ** (d - 2)
-                    / (1 - t)
-                    * (1 - ((1 - rho**2) / ((1 + rho)**2 - 4 * t * rho)) ** ((d - 1) / 2))
-                )
-
-            mc = MonteCarlo()
-            integral = mc.integrate(
-                integrand,
-                dim=1,
-                N=1000,
-                integration_domain=[[0, 1]],
-                args=(rho_integral,),
-            ).to(mu.device).to(mu.dtype)
-            kl_integral = cst + (d - 1) * integral
-            kl[~approx_idx] = kl_integral.squeeze(-1)
+            kl[~approx_idx] = self.kl_integral(mu[~approx_idx], rho_integral)
 
         self.curr_it_component = {
             "kl": kl.mean(),
@@ -595,7 +638,9 @@ class VAELossspCauchy(Losse):
             The computed loss value, which is the sum of the reconstruction loss and the KL divergence.
         if return_components is True, also returns a dictionary containing the computed loss components (reconstruction loss and KL divergence).
         """
-        log_var_data = torch.zeros_like(x_hat)  # Assuming unit variance for the data distribution
+        log_var_data = torch.zeros_like(
+            x_hat
+        )  # Assuming unit variance for the data distribution
         neg_log_prior, prior_components = self.prior(
             x_hat, x, log_var_data, return_components=True
         )
