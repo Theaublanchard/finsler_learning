@@ -139,6 +139,7 @@ def get_models(latent_dim: int) -> VAE:
     model = VAE(latent_dim=latent_dim, affine=True)
     return model
 
+
 def get_spherical_model(latent_dim: int) -> VAE:
     model = SphericalVAE(latent_dim=latent_dim, affine=True)
     return model
@@ -251,6 +252,7 @@ def get_cometric_cov_centroids(
     save_folder: Path,
     K: int,
     device: torch.device = DEVICE,
+    kappa: float = 5.0,
 ) -> CentroidsCometric:
     # Don't bother with all the params as it's going to load generated data anyway
     dl_config = DatasetConfig(
@@ -269,9 +271,7 @@ def get_cometric_cov_centroids(
     log_var_all = log_var_all.clamp(min=-30, max=30)
     cometric_centroids = torch.exp(-2 * log_var_all)
     cometric = CentroidsCometric(
-        centroids=z_all,
-        cometric_centroids=cometric_centroids,
-        K=K,
+        centroids=z_all, cometric_centroids=cometric_centroids, K=K, kappa=kappa
     )
     return cometric
 
@@ -286,6 +286,7 @@ def get_cometric_pullback_centroids(
     K: int,
     b_size_pullback: int = 16,
     device: torch.device = DEVICE,
+    kappa: float = 5.0,
 ) -> CentroidsCometric:
     # Don't bother with all the params as it's going to load generated data anyway
     dl_config = DatasetConfig(
@@ -320,7 +321,10 @@ def get_cometric_pullback_centroids(
 
     centroids_cometric = torch.cat(centroids_cometric, dim=0)
     cometric = CentroidsCometric(
-        centroids=centroids, cometric_centroids=centroids_cometric, K=K
+        centroids=centroids,
+        cometric_centroids=centroids_cometric,
+        K=K,
+        kappa=kappa,
     )
     return cometric
 
