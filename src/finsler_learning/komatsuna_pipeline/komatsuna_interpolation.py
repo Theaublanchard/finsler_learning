@@ -227,3 +227,65 @@ def evaluate_mono_inter_setup(
 
     del config_finsler
     del randers
+
+
+def evaluate_monotonicity_spherical(
+    config: KomatsunaPipelineConfig,
+    export_path: Path,
+    latent_dim: int,
+    device: torch.device,
+    batch_size: int,
+    eval_quality: bool = True,
+    eval_monotonicity: bool = True,
+):
+
+    EXPORT_GEODESICS: bool = True
+
+    model = get_spherical_model(latent_dim=latent_dim)
+    dtype = next(model.parameters()).dtype
+    try_load_pretrained_models(export_path / "spherical_vae", model)
+    model = model.to(device)
+    model.eval()
+
+    regressor = get_model_regressor(export_path=export_path, device=device, return_seg=False,n_epochs=config.n_epochs_nnunet)
+
+
+    dl_config = DatasetConfig(batch_size=batch_size)
+    komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
+        dataset_config=dl_config,
+        export_path=export_path,
+    )
+    LOGGER.info(f"Generating the images for the quality evaluation...")
+    komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
+        dataset_config=dl_config,
+        latent_dim=latent_dim,
+        device=device,
+        export_path=export_path,
+    )
+
+    encoder = model.encoder.to(device)
+    decoder = model.decoder.to(device)
+    encoder.eval()
+    decoder.eval()
+
+    solver_params = GeodesicSolverParams(n_pts=config.n_pts, device=device, needs_spline=False)
+    common_params = {
+        "dataloader_train": komatsuna_trainloader,
+        "dataloader_test": komatsuna_test_loader,
+        "encoder": encoder,
+        "regressor": regressor,
+        "decoder": decoder,
+        "reference_dataloader_train": komatsuna_trainloader_vae,
+        "device": device,
+        "export_geodesics": EXPORT_GEODESICS,
+        "solver_params": solver_params,
+    }
+    config_riemann = GeodesicEvalRiemannConfig(
+        export_path=export_path / f"geodesic_evaluation_spherical",
+        cometric=IdentityCoMetric(),
+        **common_params,
+    )
+    if eval_monotonicity:
+        geodesic_evaluation(config_riemann)
+    if eval_quality:
+        evaluate_framework(config_riemann)

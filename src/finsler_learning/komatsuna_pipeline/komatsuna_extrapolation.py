@@ -127,3 +127,73 @@ def evaluate_extrapolation(
             del randers_metric
             del cometric
             torch.cuda.empty_cache()
+
+
+
+def evaluate_extrapolation_spherical(
+    export_path: Path,
+    latent_dim: int,
+    device: torch.device,
+    batch_size: int,
+    alpha: float = 1.0,
+    ema_moment: float = 0.9,
+    eval_quality: bool = False,
+    eval_extrapolation: bool = True,
+    n_pts: int = 100,
+    n_epochs_nnunet: int = 100,
+) -> None:
+    model = get_spherical_model(latent_dim=latent_dim)
+    dtype = next(model.parameters()).dtype
+    try_load_pretrained_models(export_path/"spherical_vae", model)
+    model = model.to(device)
+    model.eval()
+
+    regressor = get_model_regressor(export_path=export_path, device=device, return_seg=False, n_epochs=n_epochs_nnunet)
+
+    dl_config = DatasetConfig(
+        batch_size=batch_size,
+    )
+    komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
+        dataset_config=dl_config,
+        export_path=export_path,
+    )
+
+    komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
+        dataset_config=dl_config,
+        latent_dim=latent_dim,
+        device=device,
+        export_path=export_path,
+    )
+
+    LOGGER.info(f"Number of training samples: {len(komatsuna_trainloader.dataset)}")
+    LOGGER.info(f"Number of test samples: {len(komatsuna_test_loader.dataset)}")
+
+    encoder = model.encoder.to(device)
+    decoder = model.decoder.to(device)
+    encoder.eval()
+    decoder.eval()
+
+    common_params = {
+        "latent_dim": latent_dim,
+        "dataloader_train": komatsuna_trainloader,
+        "dataloader_test": komatsuna_test_loader,
+        "encoder": encoder,
+        "decoder": decoder,
+        "regressor": regressor,
+        "device": device,
+        "reference_dataloader_train": komatsuna_trainloader_vae,
+        "alpha": alpha,
+        "moving_avg_momentum": ema_moment,
+        "T": n_pts,
+    }
+
+    LOGGER.info(f"- Evaluating spherical extrapolation...")
+    config_riemann = ExtrapolationEvalRiemannConfig(
+        export_path=export_path / f"extrapolation_evaluation_spherical",
+        cometric=IdentityCoMetric(),
+        **common_params,
+    )
+    if eval_extrapolation:
+        extrapolation_evaluation(config_riemann)
+    if eval_quality:
+        evaluate_extrapolated_framework(config_riemann)
