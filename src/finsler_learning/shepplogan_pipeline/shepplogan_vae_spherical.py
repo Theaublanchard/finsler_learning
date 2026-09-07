@@ -5,7 +5,7 @@ from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from finsler_learning.losses import VAELossspCauchy, MS_SSIMLoss, Losse
 from finsler_learning.base_spherical_vae_trainer import vae_trainer, SphericalVAEConfig
 
-from .shepplogan_utils import (
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import (
     DEVICE,
     IMG_SIZE,
     LOGGER,
