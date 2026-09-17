@@ -212,7 +212,8 @@ def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bo
         The axes of the figure.
     """
     if randers_only:
-        all_res = {k: v for k, v in all_res.items() if "Randers" in k}
+        keep_vals = ["Randers", "Wasserstein"]
+        all_res = {k: v for k, v in all_res.items() if any(keep_val in k for keep_val in keep_vals)}
     n_method = len(all_res.keys())
     fig, axes = plt.subplots(n_method, 2, figsize=(20, 2*n_method), width_ratios=[0.1, 1],
                             sharey="col" if sharey else False

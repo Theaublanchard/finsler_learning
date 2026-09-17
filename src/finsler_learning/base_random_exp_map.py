@@ -5,10 +5,10 @@ from geodesic_toolbox.cometric import (
     RandersMetrics,
     DualRandersMetrics,
 )
-from geodesic_toolbox.samplers import (
+from geodesic_toolbox.integrators import (
     ExplicitLeapfrogIntegrator,
     ImplicitLeapfrogIntegrator,
-    EulerIntegrator,
+    HamiltonianEulerIntegrator,
     Hamiltonian,
 )
 from geodesic_toolbox.utils import (
@@ -155,7 +155,7 @@ class RandomExpMapRiemann(torch.nn.Module):
                 n_fix_pts=self.n_fix_pts,
             )
         elif self.solver == "euler":
-            self.shooter = EulerIntegrator(
+            self.shooter = HamiltonianEulerIntegrator(
                 H=self.H,
                 gamma=self.dt,
                 substeps=self.substeps,
@@ -267,7 +267,7 @@ class RandomExpMapRiemann(torch.nn.Module):
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
 
-            q0, p0 = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
+            q0, p0, log_det = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
@@ -360,7 +360,7 @@ class RandomExpMapRanders(torch.nn.Module):
                 n_fix_pts=self.n_fix_pts,
             )
         elif self.solver == "euler":
-            self.shooter = EulerIntegrator(
+            self.shooter = HamiltonianEulerIntegrator(
                 H=self.H,
                 gamma=self.dt,
                 substeps=self.substeps,
@@ -461,7 +461,7 @@ class RandomExpMapRanders(torch.nn.Module):
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
 
-            q0, p0 = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
+            q0, p0, log_det = self.shooter.forward(q0.detach(), p0.detach(), 2, return_traj=False)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
