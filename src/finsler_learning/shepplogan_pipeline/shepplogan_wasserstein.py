@@ -11,6 +11,9 @@ from finsler_learning.shepplogan_pipeline.shepplogan_utils import (
     DatasetConfig,
     get_shepplogan_dataloaders,
 )
+from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
+    get_vae_shepplogan_dataloaders,
+)
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     get_model_regressor_trained,
 )
@@ -44,6 +47,11 @@ def parse_args():
         default=1e-3,
         help="Learning rate for potential training",
     )
+    parser.add_argument(
+        "--eval_quality",
+        action="store_true",
+        help="Evaluate image quality of the extrapolated trajectories",
+    )
     return parser.parse_args()
 
 
@@ -54,7 +62,10 @@ def load_base_config(base_path: Path) -> SheppLoganPipelineConfig:
     return config
 
 
-def load_pretrained_models(config: SheppLoganPipelineConfig):
+def load_pretrained_models(
+    config: SheppLoganPipelineConfig,
+    load_quality_reference: bool = False,
+):
     model = get_models(latent_dim=config.latent_dim)
     dtype = next(model.parameters()).dtype
     try_load_pretrained_models(config.export_path, model)
@@ -81,16 +92,37 @@ def load_pretrained_models(config: SheppLoganPipelineConfig):
     decoder = model.decoder.to(config.device)
     encoder.eval()
     decoder.eval()
-    return encoder, decoder, regressor, shepp_logan_train_loader, shepp_logan_test_loader
+    shepp_logan_trainloader_vae = None
+    if load_quality_reference:
+        shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
+            dataset_config=dl_config,
+            latent_dim=config.latent_dim,
+            device=config.device,
+            export_path=config.export_path,
+        )
+
+    return (
+        encoder,
+        decoder,
+        regressor,
+        shepp_logan_train_loader,
+        shepp_logan_test_loader,
+        shepp_logan_trainloader_vae,
+    )
 
 
 def main(args):
     config = load_base_config(args.base_path)
     config.export_path = Path(config.export_path)
 
-    encoder, decoder, regressor, shepp_logan_train_loader, shepp_logan_test_loader = (
-        load_pretrained_models(config)
-    )
+    (
+        encoder,
+        decoder,
+        regressor,
+        shepp_logan_train_loader,
+        shepp_logan_test_loader,
+        shepp_logan_trainloader_vae,
+    ) = load_pretrained_models(config, load_quality_reference=args.eval_quality)
 
     config_W2 = WassersteinConfig(
         export_path=config.export_path / "extrapolation_evaluation_wasserstein",
@@ -105,6 +137,9 @@ def main(args):
         n_epochs=args.n_epochs,
         device=config.device,
         T=config.n_pts,
+        batch_size=config.b_size_evaluation,
+        reference_dataloader_train=shepp_logan_trainloader_vae,
+        eval_quality=args.eval_quality,
     )
 
     wasserstein_main(config_W2)

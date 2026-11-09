@@ -19,6 +19,7 @@ from .base_extrapolation import (
     export_extrapolated_time,
     filter_traj_nan,
 )
+from .base_quality_evaluation import evaluate_extrapolated_framework
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,9 @@ class WassersteinConfig:
     n_epochs: int = 100
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     T: int = 100
+    batch_size: int = 8
+    reference_dataloader_train: torch.utils.data.DataLoader | None = None
+    eval_quality: bool = False
 
 
 @torch.no_grad()
@@ -538,6 +542,12 @@ def extrapolation_evaluation_gradient_flow(
         config,
         t_pred_test,
     )
+    if config.eval_quality:
+        if config.reference_dataloader_train is None:
+            raise ValueError(
+                "reference_dataloader_train is required for image quality evaluation."
+            )
+        evaluate_extrapolated_framework(config)
 
     end_time = datetime.now()
     elapsed_time = end_time - start_time
