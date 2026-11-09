@@ -13,7 +13,7 @@ from geodesic_toolbox import (
     ExpMapRanders,
 )
 from .base_geodesic_evaluation import retrieve_time_from_traj, ALL_METRICS
-from .base_random_exp_map import RandomExpMapRiemann, RandomExpMapRanders
+from .base_random_exp_map import RandomExpMapRiemann, RandomExpMapRanders, RandomExpMapRiemannBiaised
 from .spherical_tools import RandomSphericalExpMap
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,21 @@ def get_random_exp_map(
         logger = logging.getLogger()
         logger.info("Using LGDS extrapolation.")
         raise NotImplementedError("LGDS extrapolation is not implemented yet.")
+
+    if config.export_path.name.endswith("biased"):
+        logger = logging.getLogger()
+        logger.info("Using biased Riemannian extrapolation.")
+        exp_map = RandomExpMapRiemannBiaised(
+            randers=config.randers_metric,
+            T_max=config.T_max,
+            T=config.T,
+            solver=config.solver_type,
+            substeps=config.substeps,
+            alpha=config.alpha,
+            kappa=get_kappa(d=config.latent_dim, eta=config.eta),
+            moving_avg_momentum=config.moving_avg_momentum,
+        )
+        return exp_map
 
     if isinstance(config, ExtrapolationEvalFinslerConfig):
         exp_map = RandomExpMapRanders(

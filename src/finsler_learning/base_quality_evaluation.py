@@ -591,7 +591,8 @@ def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
     start_time = datetime.now()
 
     T = cfg.T
-    t_ranges = [(0, T // 4), (T // 4, T // 2), (T // 2, 3 * T // 4), (3 * T // 4, T)]
+    # t_ranges = [(0, T // 4), (T // 4, T // 2), (T // 2, 3 * T // 4), (3 * T // 4, T)]
+    t_ranges = [(0, T)]
     for t_range in t_ranges:
         LOGGER.info(f"Evaluating extrapolated trajectories for t range {t_range}...")
         inter_dataset_test = InterpolantsDataset(
