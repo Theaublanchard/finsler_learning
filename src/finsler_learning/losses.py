@@ -98,11 +98,12 @@ def margin_loss(
         omega = omega_i[start:end]
         p_i_chunk = p_i[start:end]
 
-        G = cometric.metric_tensor(p_i_chunk)
-        if G.dim() == 2:
-            omega_raised = omega * G
-        elif G.dim() == 3:
-            omega_raised = torch.einsum("bd,bde->be", omega, G)
+        # G = cometric.metric_tensor(p_i_chunk)
+        # if G.dim() == 2:
+        #     omega_raised = omega * G
+        # elif G.dim() == 3:
+        #     omega_raised = torch.einsum("bd,bde->be", omega, G)
+        omega_raised = omega
 
         # omega^T G (p_j - p_i) = omega^T G p_j - omega^T G p_i
         # Avoid materializing delta_p = p_j - p_i[:, None]
