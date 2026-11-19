@@ -1,20 +1,17 @@
 import json
 import logging
-
 from argparse import ArgumentParser
 from pathlib import Path
 
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
 from finsler_learning.logger import setup_logger
-from finsler_learning.shepplogan_pipeline.shepplogan_vae_spherical import (
-    train_spherical_vae,
+from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
+    evaluate_extrapolation_spherical,
 )
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     evaluate_monotonicity_spherical,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
-    evaluate_extrapolation_spherical,
-)
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+from finsler_learning.shepplogan_pipeline.shepplogan_vae_spherical import train_spherical_vae
 
 
 def parse_args():
@@ -58,9 +55,7 @@ def main(cfg: SheppLoganPipelineConfig):
 
     # Setup logger
     LOGGER = setup_logger(
-        name=None,
-        log_file=cfg.export_path / "pipeline.log",
-        level=logging.INFO,
+        name=None, log_file=cfg.export_path / "pipeline.log", level=logging.INFO
     )
 
     LOGGER.info(f"Export path: {cfg.export_path}")
@@ -110,9 +105,9 @@ def main(cfg: SheppLoganPipelineConfig):
                 n_pts=cfg.n_pts,
             )
 
-    except Exception as e:
+    except Exception:
         LOGGER.exception("An error occurred during the SheppLogan pipeline execution.")
-        raise e
+        raise
 
 
 def load_config_from_json(args) -> SheppLoganPipelineConfig:

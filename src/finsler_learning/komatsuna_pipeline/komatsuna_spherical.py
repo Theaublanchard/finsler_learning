@@ -1,20 +1,17 @@
 import json
 import logging
-
 from argparse import ArgumentParser
 from pathlib import Path
 
-from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
-from finsler_learning.logger import setup_logger
-from finsler_learning.komatsuna_pipeline.komatsuna_vae_spherical import (
-    train_spherical_vae,
+from finsler_learning.komatsuna_pipeline.komatsuna_extrapolation import (
+    evaluate_extrapolation_spherical,
 )
 from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import (
     evaluate_monotonicity_spherical,
 )
-from finsler_learning.komatsuna_pipeline.komatsuna_extrapolation import (
-    evaluate_extrapolation_spherical,
-)
+from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
+from finsler_learning.komatsuna_pipeline.komatsuna_vae_spherical import train_spherical_vae
+from finsler_learning.logger import setup_logger
 
 
 def parse_args():
@@ -58,9 +55,7 @@ def main(cfg: KomatsunaPipelineConfig):
 
     # Setup logger
     LOGGER = setup_logger(
-        name=None,
-        log_file=cfg.export_path / "pipeline.log",
-        level=logging.INFO,
+        name=None, log_file=cfg.export_path / "pipeline.log", level=logging.INFO
     )
 
     LOGGER.info(f"Export path: {cfg.export_path}")
@@ -131,7 +126,7 @@ def load_config_from_json(args) -> KomatsunaPipelineConfig:
 def cli():
     args = parse_args()
     cfg = load_config_from_json(args)
-    print(f"Loader coonfig", cfg)
+    print("Loader coonfig", cfg)
     main(cfg)
 
 

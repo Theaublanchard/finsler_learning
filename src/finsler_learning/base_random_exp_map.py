@@ -1,20 +1,13 @@
 import torch
-from torch import Tensor
-from geodesic_toolbox.cometric import (
-    CoMetric,
-    RandersMetrics,
-    DualRandersMetrics,
-)
+from geodesic_toolbox.cometric import CoMetric, DualRandersMetrics, RandersMetrics
 from geodesic_toolbox.integrators import (
     ExplicitLeapfrogIntegrator,
-    ImplicitLeapfrogIntegrator,
-    HamiltonianEulerIntegrator,
     Hamiltonian,
+    HamiltonianEulerIntegrator,
+    ImplicitLeapfrogIntegrator,
 )
-from geodesic_toolbox.utils import (
-    sample_cometric_normal,
-    sample_cone_VMF,
-)
+from geodesic_toolbox.utils import sample_cometric_normal, sample_cone_VMF
+from torch import Tensor
 from tqdm import tqdm
 
 
@@ -147,23 +140,15 @@ class RandomExpMapRiemann(torch.nn.Module):
 
         if self.solver == "leapfrog_explicit":
             self.shooter = ExplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                omega=self.omega,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, omega=self.omega, substeps=self.substeps
             )
         elif self.solver == "leapfrog_implicit":
             self.shooter = ImplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
-                n_fix_pts=self.n_fix_pts,
+                H=self.H, gamma=self.dt, substeps=self.substeps, n_fix_pts=self.n_fix_pts
             )
         elif self.solver == "euler":
             self.shooter = HamiltonianEulerIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, substeps=self.substeps
             )
         else:
             raise ValueError(
@@ -368,23 +353,15 @@ class RandomExpMapRanders(torch.nn.Module):
 
         if self.solver == "leapfrog_explicit":
             self.shooter = ExplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                omega=self.omega,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, omega=self.omega, substeps=self.substeps
             )
         elif self.solver == "leapfrog_implicit":
             self.shooter = ImplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
-                n_fix_pts=self.n_fix_pts,
+                H=self.H, gamma=self.dt, substeps=self.substeps, n_fix_pts=self.n_fix_pts
             )
         elif self.solver == "euler":
             self.shooter = HamiltonianEulerIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, substeps=self.substeps
             )
         else:
             raise ValueError(
@@ -491,7 +468,6 @@ class RandomExpMapRanders(torch.nn.Module):
         p0 = self.legendre_transform(q0, v0)
 
         for i in pbar:
-
             if i % self.resample_every == 0 and not (i == 0 and v0_was_provided):
                 if self.moving_avg_momentum is not None:
                     v0_ = self.sample_initial_speed(q0)
@@ -595,23 +571,15 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
 
         if self.solver == "leapfrog_explicit":
             self.shooter = ExplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                omega=self.omega,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, omega=self.omega, substeps=self.substeps
             )
         elif self.solver == "leapfrog_implicit":
             self.shooter = ImplicitLeapfrogIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
-                n_fix_pts=self.n_fix_pts,
+                H=self.H, gamma=self.dt, substeps=self.substeps, n_fix_pts=self.n_fix_pts
             )
         elif self.solver == "euler":
             self.shooter = HamiltonianEulerIntegrator(
-                H=self.H,
-                gamma=self.dt,
-                substeps=self.substeps,
+                H=self.H, gamma=self.dt, substeps=self.substeps
             )
         else:
             raise ValueError(

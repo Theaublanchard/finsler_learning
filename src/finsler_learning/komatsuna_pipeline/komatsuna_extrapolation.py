@@ -1,21 +1,18 @@
-from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
-from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
-    get_vae_komatsuna_dataloaders,
-    get_model_regressor,
-)
-
 from finsler_learning.base_extrapolation import (
-    ExtrapolationEvalRiemannConfig,
     ExtrapolationEvalFinslerConfig,
+    ExtrapolationEvalRiemannConfig,
     extrapolation_evaluation,
 )
 from finsler_learning.base_quality_evaluation import evaluate_extrapolated_framework
 from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import (
     get_randers_metric_trained,
 )
-from finsler_learning.komatsuna_pipeline.prepare_biased_riemann import (
-    copy_files_to_biaised,
+from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
+    get_model_regressor,
+    get_vae_komatsuna_dataloaders,
 )
+from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
+from finsler_learning.komatsuna_pipeline.prepare_biased_riemann import copy_files_to_biaised
 
 
 def evaluate_extrapolation(
@@ -43,21 +40,17 @@ def evaluate_extrapolation(
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor(export_path=export_path, device=device, return_seg=False, n_epochs=n_epochs_nnunet)
-
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
+    regressor = get_model_regressor(
+        export_path=export_path, device=device, return_seg=False, n_epochs=n_epochs_nnunet
     )
+
+    dl_config = DatasetConfig(batch_size=batch_size)
     komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(komatsuna_trainloader.dataset)}")
@@ -136,7 +129,6 @@ def evaluate_extrapolation(
             torch.cuda.empty_cache()
 
 
-
 def evaluate_extrapolation_spherical(
     export_path: Path,
     latent_dim: int,
@@ -150,26 +142,21 @@ def evaluate_extrapolation_spherical(
     n_epochs_nnunet: int = 100,
 ) -> None:
     model = get_spherical_model(latent_dim=latent_dim)
-    dtype = next(model.parameters()).dtype
-    try_load_pretrained_models(export_path/"spherical_vae", model)
+    try_load_pretrained_models(export_path / "spherical_vae", model)
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor(export_path=export_path, device=device, return_seg=False, n_epochs=n_epochs_nnunet)
-
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
+    regressor = get_model_regressor(
+        export_path=export_path, device=device, return_seg=False, n_epochs=n_epochs_nnunet
     )
+
+    dl_config = DatasetConfig(batch_size=batch_size)
     komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(komatsuna_trainloader.dataset)}")
@@ -194,9 +181,9 @@ def evaluate_extrapolation_spherical(
         "T": n_pts,
     }
 
-    LOGGER.info(f"- Evaluating spherical extrapolation...")
+    LOGGER.info("- Evaluating spherical extrapolation...")
     config_riemann = ExtrapolationEvalRiemannConfig(
-        export_path=export_path / f"extrapolation_evaluation_spherical",
+        export_path=export_path / "extrapolation_evaluation_spherical",
         cometric=IdentityCoMetric(),
         **common_params,
     )

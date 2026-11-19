@@ -1,10 +1,9 @@
 import torch
-from torch import Tensor
-from pytorch_msssim import MS_SSIM
-from torchmetrics import MeanMetric
-from tqdm import tqdm
 from geodesic_toolbox import CoMetric, IdentityCoMetric, PullBackCometric
-from torchquad import GaussLegendre, set_up_backend
+from pytorch_msssim import MS_SSIM
+from torch import Tensor
+from torchmetrics import MeanMetric
+from torchquad import GaussLegendre
 
 
 class Losse(torch.nn.Module):
@@ -79,18 +78,10 @@ def margin_loss(
 
     B, K = t_j.shape
 
-    loss_per_i = torch.empty(
-        B,
-        device=omega_i.device,
-        dtype=omega_i.dtype,
-    )
+    loss_per_i = torch.empty(B, device=omega_i.device, dtype=omega_i.dtype)
 
     if return_acc:
-        acc_per_i = torch.empty(
-            B,
-            device=omega_i.device,
-            dtype=omega_i.dtype,
-        )
+        acc_per_i = torch.empty(B, device=omega_i.device, dtype=omega_i.dtype)
 
     for start in range(0, B, chunk_size):
         end = min(start + chunk_size, B)
@@ -200,14 +191,7 @@ def knn_margin_loss(
     p_j, knn_idx = KNN(p_i, p_j, k)  # (b,k,d)
     t_j = t_j[knn_idx]  # (b,k)
     res = margin_loss(
-        omega_i,
-        p_i,
-        t_i,
-        p_j,
-        t_j,
-        margin=margin,
-        cometric=cometric,
-        return_acc=return_acc,
+        omega_i, p_i, t_i, p_j, t_j, margin=margin, cometric=cometric, return_acc=return_acc
     )
     return res
 
@@ -232,8 +216,8 @@ class GroupedMarginLoss(Losse):
         The margin to use for the loss. Default is 0.0.
     """
 
-    def __init__(self, k: int = None, margin: float = 0.0):
-        super(GroupedMarginLoss, self).__init__()
+    def __init__(self, k: int | None = None, margin: float = 0.0):
+        super().__init__()
         self.k = k
         self.margin = margin
         self.acc_metric = MeanMetric()
@@ -310,8 +294,8 @@ class MarginLoss(GroupedMarginLoss):
         The margin to use for the loss. Default is 0.0.
     """
 
-    def __init__(self, k: int = None, margin: float = 0.0):
-        super(MarginLoss, self).__init__(k=k, margin=margin)
+    def __init__(self, k: int | None = None, margin: float = 0.0):
+        super().__init__(k=k, margin=margin)
 
     def forward(self, omega_i, p_i, t_i, cometric=IdentityCoMetric()):
         return super().forward(omega_i, p_i, t_i, p_i, t_i, cometric=cometric)
@@ -456,11 +440,7 @@ class KL_divergence_spCauchy(Losse):
         integrator = GaussLegendre()
         integral = (
             integrator.integrate(
-                integrand,
-                dim=1,
-                N=self.N,
-                integration_domain=[[0, 1]],
-                args=(rho,),
+                integrand, dim=1, N=self.N, integration_domain=[[0, 1]], args=(rho,)
             )
             .to(mu.device)
             .to(mu.dtype)
@@ -490,7 +470,6 @@ class KL_divergence_spCauchy(Losse):
         if return_components is True, also returns a dictionary containing the computed KL divergence and its components.
         """
         kl = torch.zeros(mu.shape[0], device=mu.device, dtype=mu.dtype)
-        d = mu.shape[1]
 
         approx_idx = (rho > self.threshold).squeeze(-1)
         rho_approx = rho[approx_idx]
@@ -500,9 +479,7 @@ class KL_divergence_spCauchy(Losse):
         if rho_integral.numel() > 0:
             kl[~approx_idx] = self.kl_integral(mu[~approx_idx], rho_integral)
 
-        self.curr_it_component = {
-            "kl": kl.mean(),
-        }
+        self.curr_it_component = {"kl": kl.mean()}
         if not return_components:
             return kl.mean()
         return kl.mean(), self.curr_it_component
@@ -548,9 +525,7 @@ class LogPrior(Losse):
         if not return_components:
             return -log_prior
         else:
-            self.curr_it_component = {
-                "neg_log_prior": -log_prior,
-            }
+            self.curr_it_component = {"neg_log_prior": -log_prior}
             return -log_prior, self.curr_it_component
 
 
@@ -601,11 +576,7 @@ class VAELoss(Losse):
         kl_, kl_components = self.kl(mu, log_var_latent, return_components=True)
         loss = neg_log_prior + self.beta * kl_
         self.curr_it_component = (
-            {
-                "base_vae_loss": loss,
-            }
-            | self.kl.curr_it_component
-            | self.prior.curr_it_component
+            {"base_vae_loss": loss} | self.kl.curr_it_component | self.prior.curr_it_component
         )
         if not return_components:
             return loss
@@ -661,11 +632,7 @@ class VAELossspCauchy(Losse):
         kl_, kl_components = self.kl(mu, rho, return_components=True)
         loss = neg_log_prior + self.beta * kl_
         self.curr_it_component = (
-            {
-                "base_vae_loss": loss,
-            }
-            | self.kl.curr_it_component
-            | self.prior.curr_it_component
+            {"base_vae_loss": loss} | self.kl.curr_it_component | self.prior.curr_it_component
         )
         if not return_components:
             return loss
@@ -749,10 +716,7 @@ class FlatManifoldLoss(Losse):
     def __init__(self, decoder: torch.nn.Module, n_steps: int = 10):
         super().__init__()
         self.decoder = decoder
-        self.pb_dec = PullBackCometric(
-            diffeo=self.decoder,
-            method="finite_difference",
-        )
+        self.pb_dec = PullBackCometric(diffeo=self.decoder, method="finite_difference")
         self.c_square = 1.0
         self.n_steps = n_steps
 

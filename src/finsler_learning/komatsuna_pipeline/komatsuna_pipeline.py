@@ -1,46 +1,33 @@
-import argparse
-import torch
 import logging
-
 from argparse import ArgumentParser
-from pathlib import Path
 from datetime import datetime
 from json import dump
-from tqdm import tqdm
+from pathlib import Path
 
+import torch
+from geodesic_toolbox import IdentityCoMetric
 from torchmetrics import MeanAbsolutePercentageError
-
-from geodesic_toolbox import (
-    IdentityCoMetric,
-)
-
-from finsler_learning.logger import setup_logger
-from finsler_learning.models import VAE
+from tqdm import tqdm
 
 from finsler_learning.base_geodesic_evaluation import (
     GeodesicEvalRiemannConfig,
     GeodesicSolverParams,
 )
-from finsler_learning.base_quality_evaluation import (
-    evaluate_dataloaders,
-    eval_ae_model,
+from finsler_learning.base_quality_evaluation import eval_ae_model, evaluate_dataloaders
+from finsler_learning.komatsuna_pipeline.komatsuna_extrapolation import evaluate_extrapolation
+from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import evaluate_monotonicity
+from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
+    get_model_regressor,
+    nnunet_pipeline,
 )
+from finsler_learning.komatsuna_pipeline.komatsuna_randers_training import train_randers
 from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
 from finsler_learning.komatsuna_pipeline.komatsuna_vae import train_vae
-from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
-    nnunet_pipeline,
-    get_model_regressor,
-)
-from finsler_learning.komatsuna_pipeline.komatsuna_randers_training import (
-    train_randers,
-)
-from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import evaluate_monotonicity
-from finsler_learning.komatsuna_pipeline.komatsuna_extrapolation import (
-    evaluate_extrapolation,
-)
 from finsler_learning.komatsuna_pipeline.komatsuna_vae_stochastic import (
     train_vae_log_var_decoder_branch,
 )
+from finsler_learning.logger import setup_logger
+from finsler_learning.models import VAE
 
 
 ##################################################################
@@ -91,26 +78,17 @@ def evaluate_vae_quality(
     model = model.to(device)
     model.eval()
     regressor = get_model_regressor(export_path, device, n_epochs=n_epochs_nnunet)
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
 
     komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dl_config,
-        export_path=export_path,
+        dl_config, export_path=export_path
     )
 
     mape_train_base, mape_train_hat = vae_regressor(
-        vae=model,
-        regressor=regressor,
-        dataloader=komatsuna_trainloader,
-        device=device,
+        vae=model, regressor=regressor, dataloader=komatsuna_trainloader, device=device
     )
     mape_test_base, mape_test_hat = vae_regressor(
-        vae=model,
-        regressor=regressor,
-        dataloader=komatsuna_test_loader,
-        device=device,
+        vae=model, regressor=regressor, dataloader=komatsuna_test_loader, device=device
     )
 
     res = {
@@ -164,9 +142,7 @@ def main(cfg: KomatsunaPipelineConfig):
 
     # Setup logger
     LOGGER = setup_logger(
-        name=None,
-        log_file=cfg.export_path / "pipeline.log",
-        level=logging.INFO,
+        name=None, log_file=cfg.export_path / "pipeline.log", level=logging.INFO
     )
 
     LOGGER.info(f"Export path: {cfg.export_path}")
@@ -278,9 +254,9 @@ def main(cfg: KomatsunaPipelineConfig):
                 n_epochs_nnunet=cfg.n_epochs_nnunet,
             )
 
-    except Exception as e:
+    except Exception:
         LOGGER.exception("An error occurred during the KOMATSUNA pipeline execution.")
-        raise e
+        raise
 
 
 def add_global_arguments(parser: ArgumentParser):
@@ -306,16 +282,10 @@ def add_vae_arguments(parser: ArgumentParser):
         "--lbda", type=float, default=0.0, help="Lambda parameter for MS-SSIM loss"
     )
     parser.add_argument(
-        "--lpip_weight",
-        type=float,
-        default=0.0,
-        help="Weight for LPIP loss in VAE",
+        "--lpip_weight", type=float, default=0.0, help="Weight for LPIP loss in VAE"
     )
     parser.add_argument(
-        "--l1_weight",
-        type=float,
-        default=0.0,
-        help="Weight for L1 loss in VAE",
+        "--l1_weight", type=float, default=0.0, help="Weight for L1 loss in VAE"
     )
 
 
@@ -392,9 +362,7 @@ def add_control_arguments(parser: ArgumentParser):
     )
     parser.add_argument("--skip_randers", action="store_true", help="Skip Randers training")
     parser.add_argument(
-        "--eval_interpolation",
-        action="store_true",
-        help="Evaluate interpolation",
+        "--eval_interpolation", action="store_true", help="Evaluate interpolation"
     )
     parser.add_argument(
         "--eval_quality_interpolation",
@@ -407,9 +375,7 @@ def add_control_arguments(parser: ArgumentParser):
         help="Evaluate quality metrics during extrapolation",
     )
     parser.add_argument(
-        "--eval_extrapolation",
-        action="store_true",
-        help="Evaluate extrapolation",
+        "--eval_extrapolation", action="store_true", help="Evaluate extrapolation"
     )
     parser.add_argument(
         "--eval_regressor",
@@ -434,10 +400,7 @@ def parse_args() -> KomatsunaPipelineConfig:
     add_control_arguments(parser)
     add_extrapolation_arguments(parser)
     parser.add_argument(
-        "--n_epochs_nnunet",
-        type=int,
-        default=100,
-        help="Number of epochs for nnUNet training",
+        "--n_epochs_nnunet", type=int, default=100, help="Number of epochs for nnUNet training"
     )
 
     args = parser.parse_args()
@@ -492,6 +455,7 @@ def parse_args() -> KomatsunaPipelineConfig:
     )
     return config
 
+
 def cli():
     start_time = datetime.now()
     config = parse_args()
@@ -500,7 +464,7 @@ def cli():
     duration = end_time - start_time
 
     # Log to the same logger that was set up in main
-    LOGGER.info(f"Pipeline completed successfully!")
+    LOGGER.info("Pipeline completed successfully!")
     LOGGER.info(f"Total execution time: {duration}")
 
 

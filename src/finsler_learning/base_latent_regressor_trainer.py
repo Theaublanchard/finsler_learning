@@ -1,19 +1,19 @@
 # Base trainer for regression in the latent space,
 # using a pre-trained encoder and a latent regressor.
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import logging
+from torch import nn, optim
 from torch.utils.data import DataLoader
-
-from tqdm import tqdm
-from pathlib import Path
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
-from .losses import NaNLossException
-from .models import BaseVAE, BaseEncoder, BaseDecoder
 from torchmetrics.regression import MeanAbsolutePercentageError
+from tqdm import tqdm
+
+from .losses import NaNLossException
+from .models import BaseEncoder
 
 
 @dataclass

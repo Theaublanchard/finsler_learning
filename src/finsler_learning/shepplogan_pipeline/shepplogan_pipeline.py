@@ -1,49 +1,36 @@
 import argparse
-import torch
 import logging
-
 from argparse import ArgumentParser
-from pathlib import Path
 from datetime import datetime
 from json import dump
-from tqdm import tqdm
+from pathlib import Path
 
+import torch
+from geodesic_toolbox import IdentityCoMetric
 from torchmetrics import MeanAbsolutePercentageError
-
-from geodesic_toolbox import (
-    IdentityCoMetric,
-)
-
-from finsler_learning.logger import setup_logger
-from finsler_learning.models import VAE
+from tqdm import tqdm
 
 from finsler_learning.base_geodesic_evaluation import (
     GeodesicEvalRiemannConfig,
     GeodesicSolverParams,
 )
-from finsler_learning.base_quality_evaluation import (
-    evaluate_dataloaders,
-    eval_ae_model,
+from finsler_learning.base_quality_evaluation import eval_ae_model, evaluate_dataloaders
+from finsler_learning.logger import setup_logger
+from finsler_learning.models import VAE
+from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
+    evaluate_extrapolation,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
-from finsler_learning.shepplogan_pipeline.shepplogan_vae import train_vae
-from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
-    train_regressor,
-)
-from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import (
-    train_randers,
-)
+from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import train_regressor
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     evaluate_monotonicity,
     get_model_regressor_trained,
 )
-from finsler_learning.shepplogan_pipeline.shepplogan_extrapolation import (
-    evaluate_extrapolation,
-)
+from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import train_randers
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+from finsler_learning.shepplogan_pipeline.shepplogan_vae import train_vae
 from finsler_learning.shepplogan_pipeline.shepplogan_vae_stochastic import (
     train_vae_log_var_decoder_branch,
 )
-
 
 
 ##################################################################
@@ -80,10 +67,7 @@ def vae_regressor(
 
 
 def evaluate_vae_quality(
-    export_path: Path,
-    latent_dim: int,
-    device: torch.device,
-    batch_size: int,
+    export_path: Path, latent_dim: int, device: torch.device, batch_size: int
 ):
     # We need to to do this to ensure that the VAE will not ruin
     # the performances of the regressor by being out of distribution
@@ -93,26 +77,17 @@ def evaluate_vae_quality(
     model = model.to(device)
     model.eval()
     regressor = get_model_regressor_trained(export_path, device=device)
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
 
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dl_config,
-        export_path=export_path,
+        dl_config, export_path=export_path
     )
 
     mape_train_base, mape_train_hat = vae_regressor(
-        vae=model,
-        regressor=regressor,
-        dataloader=shepp_logan_trainloader,
-        device=device,
+        vae=model, regressor=regressor, dataloader=shepp_logan_trainloader, device=device
     )
     mape_test_base, mape_test_hat = vae_regressor(
-        vae=model,
-        regressor=regressor,
-        dataloader=shepp_logan_test_loader,
-        device=device,
+        vae=model, regressor=regressor, dataloader=shepp_logan_test_loader, device=device
     )
 
     res = {
@@ -166,9 +141,7 @@ def main(cfg: SheppLoganPipelineConfig):
 
     # Setup logger
     LOGGER = setup_logger(
-        name=None,
-        log_file=cfg.export_path / "pipeline.log",
-        level=logging.INFO,
+        name=None, log_file=cfg.export_path / "pipeline.log", level=logging.INFO
     )
 
     LOGGER.info(f"Export path: {cfg.export_path}")
@@ -283,9 +256,9 @@ def main(cfg: SheppLoganPipelineConfig):
                 n_pts=cfg.n_pts,
             )
 
-    except Exception as e:
+    except Exception:
         LOGGER.exception("An error occurred during the SheppLogan pipeline execution.")
-        raise e
+        raise
 
 
 def add_global_arguments(parser: ArgumentParser):
@@ -335,10 +308,7 @@ def add_vae_arguments(parser: ArgumentParser):
         "--lbda", type=float, default=0.0, help="Lambda parameter for MS-SSIM loss"
     )
     parser.add_argument(
-        "--lpip_weight",
-        type=float,
-        default=0.0,
-        help="Weight for LPIP loss in VAE",
+        "--lpip_weight", type=float, default=0.0, help="Weight for LPIP loss in VAE"
     )
 
 
@@ -417,9 +387,7 @@ def add_control_arguments(parser: ArgumentParser):
     )
     parser.add_argument("--skip_randers", action="store_true", help="Skip Randers training")
     parser.add_argument(
-        "--eval_interpolation",
-        action="store_true",
-        help="Evaluate interpolation",
+        "--eval_interpolation", action="store_true", help="Evaluate interpolation"
     )
     parser.add_argument(
         "--eval_quality_interpolation",
@@ -432,9 +400,7 @@ def add_control_arguments(parser: ArgumentParser):
         help="Evaluate quality metrics during extrapolation",
     )
     parser.add_argument(
-        "--eval_extrapolation",
-        action="store_true",
-        help="Evaluate extrapolation",
+        "--eval_extrapolation", action="store_true", help="Evaluate extrapolation"
     )
     parser.add_argument(
         "--eval_regressor",
@@ -530,7 +496,7 @@ def cli():
     duration = end_time - start_time
 
     # Log to the same logger that was set up in main
-    LOGGER.info(f"Pipeline completed successfully!")
+    LOGGER.info("Pipeline completed successfully!")
     LOGGER.info(f"Total execution time: {duration}")
 
 

@@ -1,25 +1,21 @@
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import logging
+from torch import nn, optim
 from torch.utils.data import DataLoader
-from einops import rearrange
-
 from tqdm import tqdm
-from pathlib import Path
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
 
 from .base_vae_trainer import (
+    _append_component_history,
+    _get_scheduled_beta,
+    _set_criterion_beta,
     export_results_vae,
     visualize_reconstruction,
-    _set_criterion_beta,
-    _get_scheduled_beta,
-    _append_component_history,
-    export_loss_components,
 )
-from .losses import NaNLossException, Losse
+from .losses import Losse, NaNLossException
 from .models import BaseSphericalVAE
 
 
@@ -216,10 +212,7 @@ def vae_trainer(vae_config: SphericalVAEConfig) -> nn.Module:
             _append_component_history(component_history_train, train_components)
             _append_component_history(component_history_test, test_components)
 
-        pbar.set_postfix(
-            train_loss=loss_epoch_train,
-            test_loss=loss_epoch_test,
-        )
+        pbar.set_postfix(train_loss=loss_epoch_train, test_loss=loss_epoch_test)
 
         loss_list_train.append(loss_epoch_train)
         loss_list_test.append(loss_epoch_test)

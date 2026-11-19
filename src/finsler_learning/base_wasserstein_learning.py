@@ -1,25 +1,25 @@
-import matplotlib.pyplot as plt
-import torch
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from torch import Tensor, clone
 from pathlib import Path
-from typing import Dict
-from tqdm import tqdm
+
+import matplotlib.pyplot as plt
+import torch
 from geomloss import SamplesLoss
-from .logger import setup_logger
-from .models import BaseEncoder, BaseDecoder
-from .base_geodesic_evaluation import retrieve_time_from_traj
-from .base_geodesic_evaluation import ALL_METRICS
+from torch import Tensor
+from tqdm import tqdm
+
 from .base_extrapolation import (
-    export_extrapolation_evaluation,
-    get_metrics_summary,
-    export_extrapolated_trajectories,
     export_extrapolated_time,
+    export_extrapolated_trajectories,
+    export_extrapolation_evaluation,
     filter_traj_nan,
+    get_metrics_summary,
 )
+from .base_geodesic_evaluation import ALL_METRICS, retrieve_time_from_traj
 from .base_quality_evaluation import evaluate_extrapolated_framework
+from .logger import setup_logger
+from .models import BaseDecoder, BaseEncoder
 
 LOGGER = logging.getLogger(__name__)
 
@@ -265,11 +265,13 @@ def train_potential(
     J = Potential(
         in_dim=config.latent_dim, hidden_dims=[config.latent_dim, config.latent_dim]
     ).to(config.device)
-    loss_fn = SamplesLoss(loss='sinkhorn', p=2, blur=0.05)
+    loss_fn = SamplesLoss(loss="sinkhorn", p=2, blur=0.05)
     bin_edges = frequence_bins(t_train, n_bins=config.n_bins)
 
     optim = torch.optim.Adam(J.parameters(), lr=config.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=config.n_epochs, eta_min=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optim, T_max=config.n_epochs, eta_min=1e-5
+    )
 
     losses_train = []
     losses_test = []
@@ -416,7 +418,7 @@ def compute_extrapolation_and_monotonicity(
     dataloader: torch.utils.data.DataLoader,
     J: Potential,
     t_train: torch.Tensor,
-) -> tuple[torch.Tensor, Dict[str, torch.Tensor], torch.Tensor]:
+) -> tuple[torch.Tensor, dict[str, torch.Tensor], torch.Tensor]:
     """
     Compute the extrapolated trajectories and evaluate monotonicity metrics.
 
@@ -442,13 +444,13 @@ def compute_extrapolation_and_monotonicity(
     """
     J.eval()
 
-    res: dict[str : list[torch.Tensor]] = {name: [] for name in ALL_METRICS.keys()}
+    res: dict[str : list[torch.Tensor]] = {name: [] for name in ALL_METRICS}
     all_trajs = []
     all_t_pred = []
 
     pbar = tqdm(
         enumerate(dataloader),
-        desc=f"Extrapolation W2 evaluation",
+        desc="Extrapolation W2 evaluation",
         total=len(dataloader),
         unit="batch",
     )
@@ -481,16 +483,14 @@ def compute_extrapolation_and_monotonicity(
     all_trajs = torch.cat(all_trajs, dim=0)  # (N_samples,T,d)
     all_t_pred = torch.cat(all_t_pred, dim=0)  # (N_samples,T)
 
-    for name in ALL_METRICS.keys():
+    for name in ALL_METRICS:
         res[name] = torch.cat(res[name], dim=0)  # (N_samples,)
 
     return all_trajs, res, all_t_pred
 
 
 def extrapolation_evaluation_gradient_flow(
-    config: WassersteinConfig,
-    J: Potential,
-    t_train: torch.Tensor,
+    config: WassersteinConfig, J: Potential, t_train: torch.Tensor
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     """Perform extrapolation evaluation using the provided configuration.
 
@@ -523,25 +523,16 @@ def extrapolation_evaluation_gradient_flow(
 
     summary_test = get_metrics_summary(res_test)
     LOGGER.info("Extrapolation evaluation results:")
-    for name in ALL_METRICS.keys():
+    for name in ALL_METRICS:
         LOGGER.info(
             f"{name.upper()}"
             f" - Test: mean={summary_test[name]['mean']:.4f} +- {summary_test[name]['std']:.4f}, "
         )
 
     LOGGER.info("Exporting results...")
-    export_extrapolation_evaluation(
-        config,
-        res_test,
-    )
-    export_extrapolated_trajectories(
-        config,
-        traj_test,
-    )
-    export_extrapolated_time(
-        config,
-        t_pred_test,
-    )
+    export_extrapolation_evaluation(config, res_test)
+    export_extrapolated_trajectories(config, traj_test)
+    export_extrapolated_time(config, t_pred_test)
     if config.eval_quality:
         if config.reference_dataloader_train is None:
             raise ValueError(
@@ -568,11 +559,7 @@ def main(config: WassersteinConfig):
     """
 
     # Setup LOGGER
-    LOGGER = setup_logger(
-        name=None,
-        log_file=config.export_path / "pipeline.log",
-        level=logging.INFO,
-    )
+    setup_logger(name=None, log_file=config.export_path / "pipeline.log", level=logging.INFO)
 
     # Embed the training and test datasets
     z_train, t_train = embed_dataset(config.train_loader, config.encoder, device=config.device)

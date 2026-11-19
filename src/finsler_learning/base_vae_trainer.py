@@ -1,17 +1,16 @@
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import logging
-from torch.utils.data import DataLoader
 from einops import rearrange
-
+from torch import nn, optim
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-from pathlib import Path
-import matplotlib.pyplot as plt
-from dataclasses import dataclass
 
-from .losses import NaNLossException, Losse
+from .losses import Losse, NaNLossException
 from .models import BaseStochasticVAE
 
 
@@ -182,8 +181,7 @@ def test_loop_vae(
 
 
 def _append_component_history(
-    history: dict[str, list[float]],
-    component_values: dict[str, float],
+    history: dict[str, list[float]], component_values: dict[str, float]
 ):
     for key, value in component_values.items():
         if key not in history:
@@ -242,10 +240,7 @@ def export_results_vae(
     loss_list_train = np.array(loss_list_train)
     loss_list_test = np.array(loss_list_test)
     # fig, axes = plt.subplots(2, 2, figsize=(10, 8))
-    fig, axes = plt.subplot_mosaic(
-        [["A", "B"], ["C", "C"]],
-        figsize=(12, 8),
-    )
+    fig, axes = plt.subplot_mosaic([["A", "B"], ["C", "C"]], figsize=(12, 8))
     ax1, ax2 = axes["A"], axes["B"]
     ax3 = axes["C"]
     ax1.plot(loss_list_train)
@@ -392,10 +387,7 @@ def vae_trainer(vae_config: VAEConfig) -> nn.Module:
             _append_component_history(component_history_train, train_components)
             _append_component_history(component_history_test, test_components)
 
-        pbar.set_postfix(
-            train_loss=loss_epoch_train,
-            test_loss=loss_epoch_test,
-        )
+        pbar.set_postfix(train_loss=loss_epoch_train, test_loss=loss_epoch_test)
 
         loss_list_train.append(loss_epoch_train)
         loss_list_test.append(loss_epoch_test)

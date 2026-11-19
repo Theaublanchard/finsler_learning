@@ -1,21 +1,18 @@
-from geodesic_toolbox import (
-    CoMetric,
-    RandersMetrics,
+from geodesic_toolbox import CoMetric, RandersMetrics
+
+from finsler_learning.base_geodesic_evaluation import (
+    GeodesicEvalFinslerConfig,
+    GeodesicEvalRiemannConfig,
+    GeodesicSolverParams,
+    geodesic_evaluation,
 )
-from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
-from finsler_learning.base_classic_regressor import HybridRegressor
+from finsler_learning.base_quality_evaluation import evaluate_framework
 from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
     get_model_regressor,
     get_vae_komatsuna_dataloaders,
 )
 from finsler_learning.komatsuna_pipeline.komatsuna_randers_training import get_omega
-from finsler_learning.base_geodesic_evaluation import (
-    GeodesicSolverParams,
-    GeodesicEvalFinslerConfig,
-    GeodesicEvalRiemannConfig,
-    geodesic_evaluation,
-)
-from finsler_learning.base_quality_evaluation import evaluate_framework
+from finsler_learning.komatsuna_pipeline.komatsuna_utils import *
 
 
 def get_randers_metric_trained(
@@ -75,15 +72,11 @@ def evaluate_monotonicity(
 
     dl_config = DatasetConfig(batch_size=batch_size)
     komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
-    LOGGER.info(f"Generating the images for the quality evaluation...")
+    LOGGER.info("Generating the images for the quality evaluation...")
     komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     if k is None:
@@ -251,7 +244,6 @@ def evaluate_monotonicity_spherical(
     EXPORT_GEODESICS: bool = True
 
     model = get_spherical_model(latent_dim=latent_dim)
-    dtype = next(model.parameters()).dtype
     try_load_pretrained_models(export_path / "spherical_vae", model)
     model = model.to(device)
     model.eval()
@@ -265,15 +257,11 @@ def evaluate_monotonicity_spherical(
 
     dl_config = DatasetConfig(batch_size=batch_size)
     komatsuna_trainloader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
-    LOGGER.info(f"Generating the images for the quality evaluation...")
+    LOGGER.info("Generating the images for the quality evaluation...")
     komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     encoder = model.encoder.to(device)
@@ -294,7 +282,7 @@ def evaluate_monotonicity_spherical(
         "solver_params": solver_params,
     }
     config_riemann = GeodesicEvalRiemannConfig(
-        export_path=export_path / f"geodesic_evaluation_spherical",
+        export_path=export_path / "geodesic_evaluation_spherical",
         cometric=IdentityCoMetric(),
         **common_params,
     )

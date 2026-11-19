@@ -1,19 +1,18 @@
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
-from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
-    get_vae_shepplogan_dataloaders,
-)
-
 from finsler_learning.base_extrapolation import (
-    ExtrapolationEvalRiemannConfig,
     ExtrapolationEvalFinslerConfig,
+    ExtrapolationEvalRiemannConfig,
     extrapolation_evaluation,
 )
 from finsler_learning.base_quality_evaluation import evaluate_extrapolated_framework
+from finsler_learning.shepplogan_pipeline.prepare_biased_riemann import copy_files_to_biaised
+from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
+    get_vae_shepplogan_dataloaders,
+)
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     get_model_regressor_trained,
     get_randers_metric_trained,
 )
-from finsler_learning.shepplogan_pipeline.prepare_biased_riemann import copy_files_to_biaised
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
 
 
 def evaluate_extrapolation_spherical(
@@ -33,24 +32,15 @@ def evaluate_extrapolation_spherical(
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor_trained(
-        export_path=export_path,
-        device=device,
-    ).to(dtype)
+    regressor = get_model_regressor_trained(export_path=export_path, device=device).to(dtype)
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")
@@ -75,9 +65,9 @@ def evaluate_extrapolation_spherical(
         "T": n_pts,
     }
 
-    LOGGER.info(f"- Evaluating spherical extrapolation...")
+    LOGGER.info("- Evaluating spherical extrapolation...")
     config_riemann = ExtrapolationEvalRiemannConfig(
-        export_path=export_path / f"extrapolation_evaluation_spherical",
+        export_path=export_path / "extrapolation_evaluation_spherical",
         cometric=IdentityCoMetric(),
         **common_params,
     )
@@ -111,24 +101,15 @@ def evaluate_extrapolation(
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor_trained(
-        export_path=export_path,
-        device=device,
-    ).to(dtype)
+    regressor = get_model_regressor_trained(export_path=export_path, device=device).to(dtype)
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")

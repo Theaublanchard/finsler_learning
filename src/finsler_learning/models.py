@@ -1,21 +1,10 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
-from torch.autograd import grad
-from torch.distributions import MultivariateNormal
-from typing import Callable, Tuple, Any
-from dataclasses import dataclass
-from collections import OrderedDict, deque
-from monai.networks.blocks import Convolution
-from monai.networks.nets import VarAutoEncoder, AutoencoderKL
+from geodesic_toolbox import *
+from geodesic_toolbox import CoMetric
+from torch import Tensor, nn
 from torchvision.models import resnet18
 from torchvision.transforms import v2
-from geodesic_toolbox import *
-
-from geodesic_toolbox import CoMetric
-from monai.networks.blocks import Convolution
-import torch.nn as nn
 
 
 def cdist(x1: torch.Tensor, x2: torch.Tensor, p: float = 2.0) -> torch.Tensor:
@@ -54,7 +43,7 @@ def cdist(x1: torch.Tensor, x2: torch.Tensor, p: float = 2.0) -> torch.Tensor:
 
 class BaseEncoder(nn.Module):
     def __init__(self):
-        super(BaseEncoder, self).__init__()
+        super().__init__()
         self.mu_branch: torch.nn.Module = ...
         self.log_var_branch: torch.nn.Module = ...
 
@@ -89,7 +78,7 @@ class LogVarToStd(nn.Module):
 
 class BaseStochasticDecoder(nn.Module):
     def __init__(self):
-        super(BaseStochasticDecoder, self).__init__()
+        super().__init__()
         self.mu_branch: torch.nn.Module = ...
         self.log_var_branch: torch.nn.Module = ...
 
@@ -97,7 +86,7 @@ class BaseStochasticDecoder(nn.Module):
         # But you get the jist
         self.std_branch: torch.nn.Module = LogVarToStd(self.log_var_branch)
 
-    def complete_forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+    def complete_forward(self, z: Tensor) -> tuple[Tensor, Tensor]:
         """
         Decodes the latent code z into the reconstructed tensor and the estimated log_variance.
 
@@ -113,7 +102,6 @@ class BaseStochasticDecoder(nn.Module):
         log_variance : Tensor (batch_size, ...)
             The estimated log variance of the reconstructed tensor.
         """
-        ...
 
     def forward(self, z: Tensor) -> Tensor:
         """
@@ -129,12 +117,11 @@ class BaseStochasticDecoder(nn.Module):
         x_reconstructed : Tensor (batch_size, ...)
             The reconstructed tensor obtained from the decoder.
         """
-        ...
 
 
 class BaseDecoder(BaseStochasticDecoder):
     def __init__(self):
-        super(BaseDecoder, self).__init__()
+        super().__init__()
         self.log_var_branch = None
 
     def complete_forward(self, z):
@@ -145,7 +132,7 @@ class BaseDecoder(BaseStochasticDecoder):
 
 class BaseStochasticVAE(nn.Module):
     def __init__(self, encoder: BaseEncoder = None, decoder: BaseStochasticDecoder = None):
-        super(BaseStochasticVAE, self).__init__()
+        super().__init__()
         self.encoder = encoder
         self.decoder = decoder
 
@@ -169,7 +156,7 @@ class BaseStochasticVAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def complete_forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def complete_forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Forward pass of the stochastic VAE model with all of the infos.
 
@@ -199,7 +186,7 @@ class BaseStochasticVAE(nn.Module):
             x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
         return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the stochastic VAE model that matches regular VAE forward signature.
 
@@ -223,11 +210,11 @@ class BaseStochasticVAE(nn.Module):
 
 class BaseVAE(BaseStochasticVAE):
     def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
-        super(BaseVAE, self).__init__()
+        super().__init__()
         self.encoder = encoder
         self.decoder = decoder
 
-    def complete_forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def complete_forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the stochastic VAE model with all of the infos.
 
@@ -256,7 +243,7 @@ class BaseVAE(BaseStochasticVAE):
         x_reconstructed, log_variance_reconstructed = self.decoder.complete_forward(z)
         return x_reconstructed, mu, log_variance_latent, log_variance_reconstructed
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the VAE model.
 
@@ -282,9 +269,10 @@ class BaseVAE(BaseStochasticVAE):
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, log_variance
 
+
 class BaseSphericalVAE(BaseVAE):
     def __init__(self, encoder: BaseEncoder = None, decoder: BaseDecoder = None):
-        super(BaseSphericalVAE, self).__init__()
+        super().__init__()
         self.encoder = encoder
         self.decoder = decoder
 
@@ -292,16 +280,16 @@ class BaseSphericalVAE(BaseVAE):
         """
         Computes the Mobius transform of a point x on the sphere with respect to a mean mu and concentration rho.
         """
-        num = x +  rho * mu
+        num = x + rho * mu
         denom = 1 + 2 * rho * torch.sum(mu * x, dim=-1, keepdim=True) + rho**2
-        y = (1- rho**2) * num / denom + rho * mu
+        y = (1 - rho**2) * num / denom + rho * mu
         return y
 
-    def reparameterize(self, mu: Tensor, rho:Tensor)->torch.Tensor:
+    def reparameterize(self, mu: Tensor, rho: Tensor) -> torch.Tensor:
         """
-        Reparameterization trick to sample from a spherical Cauchy distribution 
+        Reparameterization trick to sample from a spherical Cauchy distribution
         using the Mobius transform reparameterization.
-        
+
         Parameters:
         ----------
         mu : Tensor (batch_size, latent_dim)
@@ -321,7 +309,7 @@ class BaseSphericalVAE(BaseVAE):
         z = self.mobius_transform(mu, rho, x)  # Apply Mobius transform
         return z
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Forward pass of the VAE model.
 
@@ -346,7 +334,8 @@ class BaseSphericalVAE(BaseVAE):
             z = mu
         x_reconstructed = self.decoder(z)
         return x_reconstructed, mu, rho
-    
+
+
 #############################
 # MLP models
 #############################
@@ -376,7 +365,7 @@ class Encoder_MLP(BaseEncoder):
         self.mu_branch = nn.Sequential(self.layers, self.mu)
         self.log_variance = nn.Sequential(self.layers, self.std)
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         z = self.layers(x)
         mu = self.mu(z)
         log_variance = self.std(z)
@@ -406,7 +395,8 @@ class SphericalEncoder_MLP(BaseEncoder):
 
         self.mu_branch = nn.Sequential(self.layers, self.mu)
         self.log_variance = nn.Sequential(self.layers, self.rho)
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         z = self.layers(x)
         mu = self.mu(z)
         mu = nn.functional.normalize(mu, p=2, dim=1)
@@ -440,10 +430,7 @@ class Decoder_MLP(BaseDecoder):
 
 class VAE_MLP(BaseVAE):
     def __init__(
-        self,
-        input_dim,
-        latent_dim: int,
-        hidden_layers: tuple[int, ...] = (128, 500),
+        self, input_dim, latent_dim: int, hidden_layers: tuple[int, ...] = (128, 500)
     ):
         encoder = Encoder_MLP(
             input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
@@ -475,7 +462,7 @@ class StochasticDecoder_MLP(BaseStochasticDecoder):
         self.mu_branch = nn.Sequential(*self.layers, self.mu)
         self.log_variance = nn.Sequential(*self.layers, self.std)
 
-    def forward(self, z: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, z: Tensor) -> tuple[Tensor, Tensor]:
         x = self.layers(z)
         x_reco_mu = self.mu(x)
         x_reco_log_variance = self.std(x)
@@ -484,10 +471,7 @@ class StochasticDecoder_MLP(BaseStochasticDecoder):
 
 class StochasticVAE_MLP(BaseStochasticVAE):
     def __init__(
-        self,
-        input_dim,
-        latent_dim: int,
-        hidden_layers: tuple[int, ...] = (128, 500),
+        self, input_dim, latent_dim: int, hidden_layers: tuple[int, ...] = (128, 500)
     ):
         encoder = Encoder_MLP(
             input_dim=input_dim, latent_dim=latent_dim, hidden_layers=hidden_layers
@@ -666,7 +650,7 @@ class UpsampleBlock(nn.Module):
         kernel_size=3,
         stride=1,
         padding=1,
-        upsample_scale: float = None,
+        upsample_scale: float | None = None,
         affine: bool = False,
     ):
         super().__init__()
@@ -800,6 +784,7 @@ class VAE(BaseVAE):
 
         self.encoder = EncoderWrapper(self.encoder_, self.fc_mu, self.fc_logvar)
         self.decoder = DecoderWrapper(self.decoder_, self.fc_decode)
+
 
 class SphericalVAE(BaseSphericalVAE):
     def __init__(
@@ -1129,11 +1114,7 @@ class VarianceDecoderBranch(nn.Module):
     ):
         super().__init__()
         self.linear_rbf = LinearVarianceDecoderBranch(
-            latent_dim=latent_dim,
-            output_shape=64 * 8 * 8,
-            data=data,
-            K=K,
-            kappa=kappa,
+            latent_dim=latent_dim, output_shape=64 * 8 * 8, data=data, K=K, kappa=kappa
         )
         self.unflatten = nn.Unflatten(dim=1, unflattened_size=(64, 8, 8))
         self.block1 = UpsampleBlock(64, 32, upsample_scale=4.0, affine=affine)
@@ -1227,11 +1208,7 @@ class StochasticVAE_MLP_RBF(BaseStochasticVAE):
         self.decoder = base_model.decoder
         self.decoder.mu_branch = base_model.decoder.mu_branch
         self.decoder.log_var_branch = MLPVarianceDecoderBranch(
-            latent_dim=latent_dim,
-            data=data,
-            K=K,
-            kappa=kappa,
-            hidden_layers=(128, 500),
+            latent_dim=latent_dim, data=data, K=K, kappa=kappa, hidden_layers=(128, 500)
         )
 
 
@@ -1301,9 +1278,9 @@ class Encoder3D(BaseEncoder):
             # (80,80,10)->(40,40,5)->(20,20,3)->(10,10,2)->(5,5,1)
             strides = ((2, 2, 2), (2, 2, 2), (2, 2, 2), (2, 2, 2))
 
-        assert len(hidden_channels) == len(
-            strides
-        ), "hidden_channels and stride schedule mismatch"
+        assert len(hidden_channels) == len(strides), (
+            "hidden_channels and stride schedule mismatch"
+        )
 
         blocks = []
         c_in = in_channels
@@ -1342,7 +1319,7 @@ class Encoder3D(BaseEncoder):
         #     nn.Linear(self.flat_dim // 2, latent_dim),
         # )
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         h = self.features(x)
         mu = self.mu_branch(h)
         logvar = self.log_var_branch(h)
@@ -1397,9 +1374,9 @@ class Decoder3D(BaseDecoder):
             # (5,5,1)->(10,10,2)->(20,20,3)->(40,40,5)->(80,80,10)
             upsample_sizes = ((10, 10, 2), (20, 20, 3), (40, 40, 5), (80, 80, 10))
 
-        assert len(hidden_channels) == len(
-            upsample_sizes
-        ), "hidden_channels and upsample schedule mismatch"
+        assert len(hidden_channels) == len(upsample_sizes), (
+            "hidden_channels and upsample schedule mismatch"
+        )
 
         blocks = [nn.Unflatten(dim=-1, unflattened_size=bottleneck_shape)]
         c_in = c0
@@ -1522,7 +1499,7 @@ class HyperPlanPredictor(nn.Module):
         # base_cometric: CoMetric,
         hidden_dims: list[int] = [32, 64, 32],
     ):
-        super(HyperPlanPredictor, self).__init__()
+        super().__init__()
         self.latent_dim = latent_dim
         # self.base_cometric = base_cometric
 
@@ -1533,7 +1510,7 @@ class HyperPlanPredictor(nn.Module):
             else:
                 self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
             self.layers.add_module(f"silu_{i}", nn.SiLU())
-        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], self.latent_dim))
+        self.layers.add_module("linear_out", nn.Linear(hidden_dims[-1], self.latent_dim))
 
     def forward(self, x):
         omega = self.layers(x)
@@ -1561,7 +1538,7 @@ class AccuracyPredictor(nn.Module):
     """
 
     def __init__(self, latent_dim: int, hidden_dims: list[int] = [32, 128, 32]):
-        super(AccuracyPredictor, self).__init__()
+        super().__init__()
         self.latent_dim = latent_dim
         self.layers = nn.Sequential()
         for i, dim in enumerate(hidden_dims):
@@ -1570,7 +1547,7 @@ class AccuracyPredictor(nn.Module):
             else:
                 self.layers.add_module(f"linear_{i}", nn.Linear(hidden_dims[i - 1], dim))
             self.layers.add_module(f"silu_{i}", nn.SiLU())
-        self.layers.add_module(f"linear_out", nn.Linear(hidden_dims[-1], 1))
+        self.layers.add_module("linear_out", nn.Linear(hidden_dims[-1], 1))
         self.layers.add_module("sigmoid", nn.Sigmoid())
 
     def forward(self, z):
@@ -1584,7 +1561,7 @@ class DummyAccuracyPredictor(nn.Module):
     """
 
     def __init__(self):
-        super(DummyAccuracyPredictor, self).__init__()
+        super().__init__()
 
     def forward(self, z):
         return torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)
@@ -1639,7 +1616,7 @@ class ConvRegressor(nn.Module):
         out_feature: int = 1,
         output_activation: nn.Module | None = None,
     ):
-        super(ConvRegressor, self).__init__()
+        super().__init__()
         self.out_feature = out_feature
         self.resnet = resnet18()
         self.resnet.fc = nn.Linear(self.resnet.fc.in_features, self.out_feature)
@@ -1694,9 +1671,9 @@ class LatentClassifier(nn.Module):
         latent_dim: int,
         num_classes: int,
         hidden_dim: list[int] = [128, 64],
-        dropout: float = None,
+        dropout: float | None = None,
     ):
-        super(LatentClassifier, self).__init__()
+        super().__init__()
         self.latent_dim = latent_dim
         self.num_classes = num_classes
         self.hidden_dim = hidden_dim
@@ -1715,7 +1692,7 @@ class LatentClassifier(nn.Module):
                 self.fc.add_module(f"dropout_{i}", nn.Dropout(p=self.dropout))
 
             self.fc.add_module(f"silu_{i}", nn.SiLU())
-        self.fc.add_module(f"linear_out", nn.Linear(hidden_dim[-1], self.num_classes))
+        self.fc.add_module("linear_out", nn.Linear(hidden_dim[-1], self.num_classes))
 
     def forward(self, z: Tensor):
         logits = self.fc(z)

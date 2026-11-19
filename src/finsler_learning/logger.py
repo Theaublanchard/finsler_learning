@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 
-def setup_logger(name: str | None, log_file: Path = None, level=logging.INFO):
+def setup_logger(name: str | None, log_file: Path | None = None, level=logging.INFO):
     """
     Set up a logger with both file and console handlers.
 

@@ -1,27 +1,21 @@
-import torch
-import logging
-from torch import nn, Tensor
-from torch.utils.data import DataLoader
-
-from einops import rearrange
-from tqdm import tqdm
-from pathlib import Path
 import json
+import logging
 from datetime import datetime
+from pathlib import Path
 
-from torchmetrics.multimodal.clip_score import CLIPScore
+import torch
+from einops import rearrange
+from pytorchfwd.fwd import _compute_avg_frechet_distance, compute_packet_statistics
+from torch import Tensor, nn
+from torch.utils.data import DataLoader
+from torcheval.metrics.image.fid import FIDInceptionV3
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics.image.kid import KernelInceptionDistance
-from torcheval.metrics.image.fid import FIDInceptionV3
+from torchmetrics.multimodal.clip_score import CLIPScore
+from tqdm import tqdm
 
-from pytorchfwd.fwd import compute_packet_statistics, _compute_avg_frechet_distance
-
-from .base_geodesic_evaluation import (
-    GeodesicEvalRiemannConfig,
-    get_solver,
-    export_latent_geodesics,
-)
 from .base_extrapolation import ExtrapolationEvalRiemannConfig
+from .base_geodesic_evaluation import GeodesicEvalRiemannConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +28,7 @@ class MetricEvaluator(nn.Module):
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         n_runs: int = 2,
     ):
-        super(MetricEvaluator, self).__init__()
+        super().__init__()
         self.dataloader_train = dataloader_train
         self.dataloader_test = dataloader_test
         self.device = device
@@ -58,13 +52,11 @@ class CLIPMetricEvaluator(MetricEvaluator):
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         n_runs: int = 2,
     ):
-        super(CLIPMetricEvaluator, self).__init__(
-            dataloader_train, dataloader_test, device=device, n_runs=n_runs
-        )
+        super().__init__(dataloader_train, dataloader_test, device=device, n_runs=n_runs)
         self.clip_metric = CLIPScore().to(self.device)
-        assert (
-            dataloader_test.batch_size == dataloader_train.batch_size
-        ), f"Dataloader batch sizes must be equal for CLIP metric evaluation.Got train: {dataloader_train.batch_size}, test: {dataloader_test.batch_size}"
+        assert dataloader_test.batch_size == dataloader_train.batch_size, (
+            f"Dataloader batch sizes must be equal for CLIP metric evaluation.Got train: {dataloader_train.batch_size}, test: {dataloader_test.batch_size}"
+        )
 
     def pre_process_images(self, x_train: Tensor, x_test: Tensor) -> tuple[Tensor, Tensor]:
         # Clip score requires RGB images
@@ -130,9 +122,7 @@ class KIDMetricEvaluator(MetricEvaluator):
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         n_runs: int = 1,  # unused but for consistency
     ):
-        super(KIDMetricEvaluator, self).__init__(
-            dataloader_train, dataloader_test, device=device
-        )
+        super().__init__(dataloader_train, dataloader_test, device=device)
         n_data_train = len(dataloader_train.dataset)
         n_data_test = len(dataloader_test.dataset)
         if n_data_train < subset_size or n_data_test < subset_size:
@@ -196,9 +186,7 @@ class FIDMetricEvaluator(MetricEvaluator):
         normalize: bool = True,
         n_runs: int = 1,  # unused but for consistency
     ):
-        super(FIDMetricEvaluator, self).__init__(
-            dataloader_train, dataloader_test, device=device, n_runs=n_runs
-        )
+        super().__init__(dataloader_train, dataloader_test, device=device, n_runs=n_runs)
         self.device = device
         self.fid_metric = (
             FrechetInceptionDistance(normalize=normalize).to(self.device).to(torch.float)
@@ -286,7 +274,7 @@ class PrecisionRecallEvaluator(MetricEvaluator):
         k: int = 3,
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ):
-        super(PrecisionRecallEvaluator, self).__init__(dataloader_train, dataloader_test)
+        super().__init__(dataloader_train, dataloader_test)
         self.encoder = encoder
         self.k = k
         self.device = device
@@ -409,7 +397,7 @@ class InterpolantsDataset(torch.utils.data.Dataset):
         train: bool = True,
         transform=None,
         latent_name: str = "latent_geodesics",
-        t_range: tuple[int, int] = None,
+        t_range: tuple[int, int] | None = None,
     ):
         self.decoder = decoder
         self.decoder.eval()
@@ -467,14 +455,10 @@ def eval_ae_model(cfg: GeodesicEvalRiemannConfig):
     ae_dataset_test = AEDataset(cfg, train=False)
 
     ae_dataloader_train = torch.utils.data.DataLoader(
-        ae_dataset_train,
-        batch_size=cfg.solver_params.batch_size,
-        shuffle=True,
+        ae_dataset_train, batch_size=cfg.solver_params.batch_size, shuffle=True
     )
     ae_dataloader_test = torch.utils.data.DataLoader(
-        ae_dataset_test,
-        batch_size=cfg.solver_params.batch_size,
-        shuffle=True,
+        ae_dataset_test, batch_size=cfg.solver_params.batch_size, shuffle=True
     )
     res = {}
     for metric_name, metric_class in ALL_METRICS.items():
@@ -502,9 +486,11 @@ def eval_ae_model(cfg: GeodesicEvalRiemannConfig):
 
 
 def export_metrics_results(
-    cfg: GeodesicEvalRiemannConfig, scores: dict[str, float], t_range: tuple[int, int] = None
+    cfg: GeodesicEvalRiemannConfig,
+    scores: dict[str, float],
+    t_range: tuple[int, int] | None = None,
 ):
-    filename = f"metrics_results"
+    filename = "metrics_results"
     if t_range is not None:
         t_start, t_end = t_range
         filename += f"_t{t_start}_{t_end}"
@@ -548,9 +534,7 @@ def evaluate_framework(cfg: GeodesicEvalRiemannConfig):
     start_time = datetime.now()
     inter_dataset_test = InterpolantsDataset(cfg.decoder, cfg.export_path, train=False)
     inter_dataloader_test = torch.utils.data.DataLoader(
-        inter_dataset_test,
-        batch_size=cfg.solver_params.batch_size,
-        shuffle=True,
+        inter_dataset_test, batch_size=cfg.solver_params.batch_size, shuffle=True
     )
     scores_test = evaluate_dataloaders(
         dataloader_reference=cfg.reference_dataloader_train,
@@ -603,9 +587,7 @@ def evaluate_extrapolated_framework(cfg: ExtrapolationEvalRiemannConfig):
             latent_name="extrapolated_traj",
         )
         inter_dataloader_test = torch.utils.data.DataLoader(
-            inter_dataset_test,
-            batch_size=cfg.batch_size,
-            shuffle=True,
+            inter_dataset_test, batch_size=cfg.batch_size, shuffle=True
         )
         scores_test = evaluate_dataloaders(
             dataloader_reference=cfg.reference_dataloader_train,

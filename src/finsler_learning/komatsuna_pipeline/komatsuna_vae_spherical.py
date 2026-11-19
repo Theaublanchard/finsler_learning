@@ -1,16 +1,16 @@
-import torch
 from pathlib import Path
+
+import torch
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-from finsler_learning.losses import VAELossspCauchy, MS_SSIMLoss, Losse
-from finsler_learning.base_spherical_vae_trainer import vae_trainer, SphericalVAEConfig
-
+from finsler_learning.base_spherical_vae_trainer import SphericalVAEConfig, vae_trainer
 from finsler_learning.komatsuna_pipeline.komatsuna_utils import (
     DEVICE,
+    DatasetConfig,
     get_komatsuna_dataloaders,
     get_spherical_model,
-    DatasetConfig,
 )
+from finsler_learning.losses import Losse, MS_SSIMLoss, VAELossspCauchy
 
 
 ################################################################
@@ -22,11 +22,11 @@ class CondVAELoss(Losse):
         beta: float = 1.0,
         free_bits: float = 0.0,
         lbda: float = 0.0,
-        lpip_weight: float = None,
+        lpip_weight: float | None = None,
         device=DEVICE,
         l1_weight: float = 0.0,
     ):
-        super(CondVAELoss, self).__init__()
+        super().__init__()
         self.lbda = lbda
         self.lpip_weight = lpip_weight
         self.l1_weight = l1_weight
@@ -39,9 +39,7 @@ class CondVAELoss(Losse):
         if lpip_weight is not None and lpip_weight > 0.0:
             self.lpip_loss = LearnedPerceptualImagePatchSimilarity(
                 net_type="vgg", normalize=True, reduction="mean"
-            ).to(
-                device
-            )  # uses a ton of VRAM
+            ).to(device)  # uses a ton of VRAM
 
     @property
     def beta(self) -> float:
@@ -52,12 +50,7 @@ class CondVAELoss(Losse):
         self.vae_loss.beta = value
 
     def forward(
-        self,
-        x_recon,
-        x,
-        mu,
-        rho,
-        return_components: bool = False,
+        self, x_recon, x, mu, rho, return_components: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Parameters:
@@ -129,25 +122,15 @@ def train_spherical_vae(
     l1_weight: float,
     device: torch.device,
 ) -> tuple[torch.nn.Module, list, list]:
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     komatsuna_train_loader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
-        use_augmentation=True,
+        dataset_config=dl_config, export_path=export_path, use_augmentation=True
     )
     model = get_spherical_model(latent_dim=latent_dim)
     # try_load_pretrained_models(export_path, model)
-    optim = torch.optim.Adam(
-        model.parameters(),
-        lr=lr,
-        weight_decay=weight_decay,
-    )
+    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optim,
-        T_max=n_epochs,
-        eta_min=1e-6,
+        optimizer=optim, T_max=n_epochs, eta_min=1e-6
     )
     loss_fn = CondVAELoss(beta=beta, lbda=lbda, lpip_weight=lpip_weight, l1_weight=l1_weight)
     task_config = SphericalVAEConfig(

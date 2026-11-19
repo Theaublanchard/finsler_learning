@@ -1,9 +1,5 @@
-from pathlib import Path
 import shutil
-
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import (
-    VALID_COMETRIC_TYPES,
-)
+from pathlib import Path
 
 
 def copy_files_to_biaised(config_path: Path, cometric_type: str) -> None:

@@ -1,20 +1,20 @@
-from pathlib import Path
-import re
 import hashlib
+import re
 import shutil
 import subprocess
 from datetime import datetime
 from json import dump, load
+from pathlib import Path
+
 import torch
 import torchvision
-from tqdm import tqdm
-
 from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
 from nnunetv2.paths import nnUNet_results
 from nnunetv2.postprocessing.remove_connected_components import (
     apply_postprocessing,
     load_pickle,
 )
+from tqdm import tqdm
 
 from .komatsuna_utils import *
 
@@ -101,10 +101,7 @@ class NNUnetModel(torch.nn.Module):
     #     props = load_pickle(sample_case)
     #     return props
 
-    def forward(
-        self,
-        x: torch.Tensor,
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x_in = [x_ for x_ in x.unsqueeze(-1).cpu().numpy()]
         # x_in = x.cpu().numpy().astype(np.float32)  # (B, C, H, W)
         # x_in = x_in[:, None, ...]  # (B, 1, C, H, W)
@@ -162,14 +159,8 @@ def get_vae_komatsuna_dataloaders(
     model = model.to(device)
     model.eval()
 
-    train_dataset = KOMATSUNADataset(
-        train=True,
-        export_path=export_path,
-    )
-    test_dataset = KOMATSUNADataset(
-        train=False,
-        export_path=export_path,
-    )
+    train_dataset = KOMATSUNADataset(train=True, export_path=export_path)
+    test_dataset = KOMATSUNADataset(train=False, export_path=export_path)
 
     @torch.no_grad()
     def collate_with_model(batch: list, model: VAE, device: torch.device):
@@ -376,9 +367,7 @@ def export_reco_nnunet(latent_dim: int, export_path: Path, device: torch.device)
     model.to(device)
     ds_config = DatasetConfig(return_annots=True)
     train_loader, test_loader = get_komatsuna_dataloaders(
-        ds_config,
-        export_path,
-        use_augmentation=False,
+        ds_config, export_path, use_augmentation=False
     )
 
     export_nnunet_images(train_loader, ds_path, model, device=device, train=True)
@@ -489,14 +478,9 @@ def train_nnunet(
     if disable_ensembling:
         find_best_cmd.append("--disable_ensembling")
 
-    if not _run_nnunet_cmd(
-        find_best_cmd,
-        ds_name=ds_name,
-        step_name="find_best_configuration_and_postprocessing",
-    ):
-        return False
-
-    return True
+    return _run_nnunet_cmd(
+        find_best_cmd, ds_name=ds_name, step_name="find_best_configuration_and_postprocessing"
+    )
 
 
 def nnunet_pipeline(

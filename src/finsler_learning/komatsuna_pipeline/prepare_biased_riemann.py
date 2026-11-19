@@ -1,5 +1,5 @@
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 
 def copy_files_to_biaised(config_path: Path, cometric_type: str) -> None:

@@ -1,9 +1,10 @@
-import torch
-from torch import Tensor
-from scipy.stats import kendalltau, pearsonr, spearmanr
-import numpy as np
-from einops import rearrange
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from einops import rearrange
+from scipy.stats import kendalltau, pearsonr, spearmanr
+from torch import Tensor
+
 
 def hyperplane_params(pts, w, line_length=0.1):
     """Returns the points of the hyperplane defined by the normal vector w at the point pts.
@@ -35,18 +36,9 @@ def hyperplane_params(pts, w, line_length=0.1):
 def plot_hyperplane(pts, w, ax, line_length=0.1, arrow=True, title=None):
     pts_start, pts_end = hyperplane_params(pts, w, line_length=line_length)
 
-    ax.plot(
-        [pts_start[:, 0], pts_end[:, 0]],
-        [pts_start[:, 1], pts_end[:, 1]],
-        "r--",
-    )
+    ax.plot([pts_start[:, 0], pts_end[:, 0]], [pts_start[:, 1], pts_end[:, 1]], "r--")
     if arrow:
-        ax.quiver(
-            pts[:, 0],
-            pts[:, 1],
-            w[:, 0],
-            w[:, 1],
-        )
+        ax.quiver(pts[:, 0], pts[:, 1], w[:, 0], w[:, 1])
     if title is not None:
         ax.set_title(title)
 
@@ -101,6 +93,7 @@ def pearson_corr(x: Tensor):
         pearson_corr.append(corr)
     return torch.tensor(pearson_corr, device=x.device)
 
+
 def spearman_corr(x: Tensor):
     """
     Measure the monotonicity of a tensor using Spearman correlation.
@@ -125,11 +118,12 @@ def spearman_corr(x: Tensor):
         spearman_corr.append(corr)
     return torch.tensor(spearman_corr, device=x.device)
 
+
 @torch.no_grad()
-def decode_traj(z_traj, decoder:torch.nn.Module,device:torch.device):
+def decode_traj(z_traj, decoder: torch.nn.Module, device: torch.device):
     """
     Decoder a batch of latent trajectories into the original space using the provided decoder.
-    
+
     Parameters:
     -----------
     z_traj : Tensor (B,T,D)
@@ -145,7 +139,8 @@ def decode_traj(z_traj, decoder:torch.nn.Module,device:torch.device):
     decoded = rearrange(decoded, "(b t) ... -> b t ...", b=B, t=T)
     return decoded
 
-def stuck_images(x_hat:torch.Tensor,pad:int=0,pad_colors=0)->torch.Tensor:
+
+def stuck_images(x_hat: torch.Tensor, pad: int = 0, pad_colors=0) -> torch.Tensor:
     """
     Given a sequences of images, returns the concatenated images for visualization.
 
@@ -170,25 +165,32 @@ def stuck_images(x_hat:torch.Tensor,pad:int=0,pad_colors=0)->torch.Tensor:
     return rearrange(x_hat_padded, "b t c h w -> b c h (t w)")
 
 
-def prepare_images(x_hat:torch.Tensor, n_pts:int=10)->torch.Tensor:
+def prepare_images(x_hat: torch.Tensor, n_pts: int = 10) -> torch.Tensor:
     """Prepares the images for visualization by selecting a subset of points and concatenating them.
-    
+
     Parameters:
     x_hat : Tensor (B, T, C, H, W)
         The decoded images along the geodesic trajectories.
     n_pts : int
         The number of points to select from each trajectory for visualization.
     """
-    idx = torch.linspace(0, x_hat.shape[1]-1, n_pts).long()
-    x_hat = x_hat[:, idx] # (B, n_pts, C, H, W)
-    x_plot = stuck_images(x_hat, pad=0, pad_colors=1) # (B, C, H, T*W + (T-1)*pad)
-    x_plot = rearrange(x_plot, "b c h w -> b h w c") # (B, H, W, C)
+    idx = torch.linspace(0, x_hat.shape[1] - 1, n_pts).long()
+    x_hat = x_hat[:, idx]  # (B, n_pts, C, H, W)
+    x_plot = stuck_images(x_hat, pad=0, pad_colors=1)  # (B, C, H, T*W + (T-1)*pad)
+    x_plot = rearrange(x_plot, "b c h w -> b h w c")  # (B, H, W, C)
     return x_plot
 
-def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bool=False,randers_only:bool=False)->tuple[plt.Figure,np.ndarray]:
+
+def plot_results(
+    all_res: dict,
+    idx: int = 0,
+    sharey: bool = False,
+    relative_variation: bool = False,
+    randers_only: bool = False,
+) -> tuple[plt.Figure, np.ndarray]:
     """Plots the results of the geodesic evaluations for different methods.
 
-    Parameters: 
+    Parameters:
     all_res : dict
         A dictionary containing the results for each method.
         all_res[method_name] = {
@@ -213,38 +215,63 @@ def plot_results(all_res:dict, idx:int=0,sharey:bool=False,relative_variation:bo
     """
     if randers_only:
         keep_vals = ["Randers", "Wasserstein"]
-        all_res = {k: v for k, v in all_res.items() if any(keep_val in k for keep_val in keep_vals)}
+        all_res = {
+            k: v for k, v in all_res.items() if any(keep_val in k for keep_val in keep_vals)
+        }
     n_method = len(all_res.keys())
-    fig, axes = plt.subplots(n_method, 2, figsize=(20, 2*n_method), width_ratios=[0.1, 1],
-                            sharey="col" if sharey else False
-                            )
+    fig, axes = plt.subplots(
+        n_method,
+        2,
+        figsize=(20, 2 * n_method),
+        width_ratios=[0.1, 1],
+        sharey="col" if sharey else False,
+    )
     for i, (method_name, res) in enumerate(all_res.items()):
-        x_hat = res["x_hat"] # (B, T, C, H, W)
+        x_hat = res["x_hat"]  # (B, T, C, H, W)
         x_plot = prepare_images(x_hat, n_pts=10)
-        x_plot = x_plot[idx] # (H, W, C)
+        x_plot = x_plot[idx]  # (H, W, C)
 
         kendall_tau = res["kendall_tau"][idx]
         t_pred = res["t_traj"][idx]
         rel_val = (t_pred[-1] - t_pred[0]) / t_pred[0] * 100
 
         axes[i, 0].plot(t_pred, color="blue")
-        axes[i, 0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=14, ha="left", va="top", transform=axes[i, 0].transAxes)
+        axes[i, 0].text(
+            0.0,
+            0.9,
+            rf"$\tau = {kendall_tau:.2f}$",
+            fontsize=14,
+            ha="left",
+            va="top",
+            transform=axes[i, 0].transAxes,
+        )
         if relative_variation:
-            axes[i, 0].text(0., 0.7, f"RV = {rel_val:.0f}%", fontsize=14, ha="left", va="top", transform=axes[i, 0].transAxes)
+            axes[i, 0].text(
+                0.0,
+                0.7,
+                f"RV = {rel_val:.0f}%",
+                fontsize=14,
+                ha="left",
+                va="top",
+                transform=axes[i, 0].transAxes,
+            )
         axes[i, 0].set_xticks([])
         axes[i, 0].set_yticks([])
-        axes[i, 0].set_ylabel(f"{method_name}",fontsize=12)
+        axes[i, 0].set_ylabel(f"{method_name}", fontsize=12)
         axes[i, 1].imshow(x_plot, cmap="gray", aspect="equal")
         axes[i, 1].set_anchor("W")
         axes[i, 1].axis("off")
     fig.tight_layout()
     return fig, axes
 
-def plot_single_traj(all_res_method:dict,idx:int=0, relative_variation:bool=False)->tuple[plt.Figure,np.ndarray]:
+
+def plot_single_traj(
+    all_res_method: dict, idx: int = 0, relative_variation: bool = False
+) -> tuple[plt.Figure, np.ndarray]:
     """
     Plots a single trajectory for a given method.
 
-    Parameters: 
+    Parameters:
     all_res_method : dict
         A dictionary containing the results for the method.
         all_res_method = {
@@ -264,20 +291,36 @@ def plot_single_traj(all_res_method:dict,idx:int=0, relative_variation:bool=Fals
         The axes of the figure.
     """
     fig, axes = plt.subplots(1, 2, figsize=(20, 2), width_ratios=[0.1, 1])
-    x_hat = all_res_method["x_hat"] # (B, T, C, H, W)
+    x_hat = all_res_method["x_hat"]  # (B, T, C, H, W)
     x_plot = prepare_images(x_hat, n_pts=10)
-    x_plot = x_plot[idx] # (H, W, C)
+    x_plot = x_plot[idx]  # (H, W, C)
     kendall_tau = all_res_method["kendall_tau"][idx]
     t_pred = all_res_method["t_traj"][idx]
     rel_val = (t_pred[-1] - t_pred[0]) / t_pred[0] * 100
 
     axes[0].plot(t_pred, color="blue")
-    axes[0].text(0., 0.9, r"$\tau = {:.2f}$".format(kendall_tau), fontsize=14, ha="left", va="top", transform=axes[0].transAxes)
+    axes[0].text(
+        0.0,
+        0.9,
+        rf"$\tau = {kendall_tau:.2f}$",
+        fontsize=14,
+        ha="left",
+        va="top",
+        transform=axes[0].transAxes,
+    )
     if relative_variation:
-        axes[0].text(0., 0.7, f"RV = {rel_val:.0f}%", fontsize=14, ha="left", va="top", transform=axes[0].transAxes)
+        axes[0].text(
+            0.0,
+            0.7,
+            f"RV = {rel_val:.0f}%",
+            fontsize=14,
+            ha="left",
+            va="top",
+            transform=axes[0].transAxes,
+        )
     axes[0].set_xticks([])
     axes[0].set_yticks([])
-    axes[0].set_ylabel(f"Sequential factors",fontsize=14)
+    axes[0].set_ylabel("Sequential factors", fontsize=14)
     axes[1].imshow(x_plot, cmap="gray", aspect="equal")
     axes[1].set_anchor("W")
     axes[1].axis("off")

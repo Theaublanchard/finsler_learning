@@ -1,24 +1,25 @@
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+import torch
+from einops import rearrange
 from geodesic_toolbox import (
     CoMetric,
+    RandersMetrics,
     SolverGraphGEORCE,
     SolverGraphGEORCEFinsler,
-    RandersMetrics,
     SolverGraphSpline,
     SolverGraphSplineFinsler,
 )
-from dataclasses import dataclass
-import torch
 from torch import Tensor
-from pathlib import Path
 from tqdm import tqdm
-from einops import rearrange
-import logging
-from datetime import datetime
 
 from .lgds import LGDS
-from .models import BaseEncoder, BaseDecoder
-from .utils import kendall_tau, pearson_corr, spearman_corr
+from .models import BaseDecoder, BaseEncoder
 from .spherical_tools import SphericalGeodesicSolver
+from .utils import kendall_tau, pearson_corr, spearman_corr
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,9 +83,7 @@ class GeodesicEvalFinslerConfig(GeodesicEvalRiemannConfig):
 
 @torch.no_grad()
 def embed_dataset(
-    dataloader: torch.utils.data.DataLoader,
-    encoder: BaseEncoder,
-    device: torch.device,
+    dataloader: torch.utils.data.DataLoader, encoder: BaseEncoder, device: torch.device
 ) -> Tensor:
     """
     Embeds the dataset using the provided encoder.
@@ -116,9 +115,7 @@ def embed_dataset(
 
 @torch.no_grad()
 def embed_dataset_w_labels(
-    dataloader: torch.utils.data.DataLoader,
-    encoder: BaseEncoder,
-    device: torch.device,
+    dataloader: torch.utils.data.DataLoader, encoder: BaseEncoder, device: torch.device
 ) -> Tensor:
     """
     Embeds the dataset using the provided encoder.
@@ -160,7 +157,7 @@ def get_solver(
     encoder: BaseEncoder,
     device: torch.device,
     randers_metric: RandersMetrics = None,
-    export_path: Path = None,
+    export_path: Path | None = None,
 ) -> SolverGraphGEORCE | SolverGraphGEORCEFinsler:
     is_lgds = export_path is not None and export_path.name == "geodesic_evaluation_lgds"
     if is_lgds:
@@ -367,9 +364,9 @@ def retrieve_time_from_traj(
     dtype = next(decoder.parameters()).dtype
     device = next(decoder.parameters()).device
     regressor = regressor.to(dtype)
-    assert latent_regressor is not None or (
-        decoder is not None and regressor is not None
-    ), "Either latent classifier or both decoder and regressor must be provided to infer timestamps."
+    assert latent_regressor is not None or (decoder is not None and regressor is not None), (
+        "Either latent classifier or both decoder and regressor must be provided to infer timestamps."
+    )
     t_pred_list = []
     pbar = tqdm(
         range(0, traj.shape[0], batch_size),
@@ -576,9 +573,7 @@ def export_geodesic_evaluation(
         torch.save(metric_values, export_path / f"geo_{name}_list_test.pth")
 
 
-def geodesic_evaluation(
-    config: GeodesicEvalRiemannConfig,
-) -> tuple[Tensor, dict[str, Tensor]]:
+def geodesic_evaluation(config: GeodesicEvalRiemannConfig) -> tuple[Tensor, dict[str, Tensor]]:
     """
     Main function to perform geodesic evaluation.
 

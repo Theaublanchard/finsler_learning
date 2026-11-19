@@ -1,40 +1,27 @@
 """
 This script is used to inspect the convergence of the Hamiltonian along the geodesics computed with the Finsler (and Riemannian biased)
-when there is no resampling of the initial speed. 
-This is demanded by Reviewer kqKM (https://openreview.net/forum?id=GflASlNXF6) albeit a bit useless imo.  
+when there is no resampling of the initial speed.
+This is demanded by Reviewer kqKM (https://openreview.net/forum?id=GflASlNXF6) albeit a bit useless imo.
 """
-import torch
-import finsler_learning.shepplogan_pipeline as sp
-from finsler_learning.shepplogan_pipeline import *
-import finsler_learning as fl
+
 import json
 from pathlib import Path
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import SheppLoganPipelineConfig
-from geodesic_toolbox.cometric import DualRandersMetrics
-import matplotlib.pyplot as plt
-from finsler_learning.utils import kendall_tau, plot_results
 
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+import matplotlib.pyplot as plt
+import torch
+
+from finsler_learning.base_extrapolation import *
+from finsler_learning.base_extrapolation import ExtrapolationEvalFinslerConfig
+from finsler_learning.shepplogan_pipeline import *
 from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
     get_vae_shepplogan_dataloaders,
 )
-
-from finsler_learning.base_extrapolation import (
-    ExtrapolationEvalRiemannConfig,
-    ExtrapolationEvalFinslerConfig,
-    extrapolation_evaluation,
-)
-from finsler_learning.base_quality_evaluation import evaluate_extrapolated_framework
 from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     get_model_regressor_trained,
     get_randers_metric_trained,
 )
-from finsler_learning.base_extrapolation import *
-
-from geodesic_toolbox.utils import (
-    sample_cometric_normal,
-    sample_cone_VMF,
-)
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import SheppLoganPipelineConfig
 
 
 def main():
@@ -61,10 +48,7 @@ def main():
     omega_strength = config.omega_strength
     use_dummy_accuracy = config.use_dummy_accuracy
 
-
     compute_riemann = True
-
-
 
     model = get_models(latent_dim=latent_dim)
     dtype = next(model.parameters()).dtype
@@ -72,24 +56,15 @@ def main():
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor_trained(
-        export_path=export_path,
-        device=device,
-    ).to(dtype)
+    regressor = get_model_regressor_trained(export_path=export_path, device=device).to(dtype)
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")
@@ -154,7 +129,7 @@ def main():
     x, _ = next(iter(config_finsler.dataloader_test))
     x = x.to(device)
 
-    z,_ = config_finsler.encoder(x)
+    z, _ = config_finsler.encoder(x)
     assert not z.isnan().any()
 
     # Common initial speed
@@ -179,12 +154,9 @@ def main():
             config_riemann_biased.T = N_pts
             exp_map_riemann_biased = get_random_exp_map(config_riemann_biased)
             exp_map_riemann_biased.resample_every = N_pts + 1
-            z_traj_riemann_biased, p_traj_riemann_biased = exp_map_riemann_biased(
-                z, v0
-            )
+            z_traj_riemann_biased, p_traj_riemann_biased = exp_map_riemann_biased(z, v0)
             H_traj_riemann_biased = exp_map_riemann_biased.H(
-                z_traj_riemann_biased.flatten(0, 1),
-                p_traj_riemann_biased.flatten(0, 1),
+                z_traj_riemann_biased.flatten(0, 1), p_traj_riemann_biased.flatten(0, 1)
             ).reshape(z_traj_riemann_biased.shape[:2])
             H_list_riemann_biased.append(H_traj_riemann_biased.detach().cpu())
 
@@ -201,7 +173,7 @@ def main():
         mean_f = relative_error_f.mean(dim=0)
         std_f = relative_error_f.std(dim=0, unbiased=False)
 
-        line_f, = ax1.plot(x, mean_f, label=f"N_pts={N_pts}")
+        (line_f,) = ax1.plot(x, mean_f, label=f"N_pts={N_pts}")
         ax1.fill_between(
             x, mean_f - std_f, mean_f + std_f, color=line_f.get_color(), alpha=0.2
         )
@@ -212,7 +184,7 @@ def main():
             relative_error_r = 100 * (H_r - H0_r) / H0_r
             mean_r = relative_error_r.mean(dim=0)
             std_r = relative_error_r.std(dim=0, unbiased=False)
-            line_r, = ax2.plot(x, mean_r, label=f"N_pts={N_pts}")
+            (line_r,) = ax2.plot(x, mean_r, label=f"N_pts={N_pts}")
             ax2.fill_between(
                 x, mean_r - std_r, mean_r + std_r, color=line_r.get_color(), alpha=0.2
             )
@@ -220,9 +192,7 @@ def main():
     ax1.set_title(f"Mean relative Hamiltonian evolution Finsler (+/- std, n={z.shape[0]})")
     ax1.legend()
     if compute_riemann:
-        ax2.set_title(
-            f"Mean relative Hamiltonian evolution Riemann (+/- std, n={z.shape[0]})"
-        )
+        ax2.set_title(f"Mean relative Hamiltonian evolution Riemann (+/- std, n={z.shape[0]})")
         ax2.legend()
     fig.tight_layout()
     fig.savefig(export_path / f"hamiltonian_evolution_{cometric_type}.pdf", dpi=300)

@@ -1,6 +1,6 @@
 import torch
-from torch import Tensor
 from sklearn.neighbors import NearestNeighbors
+from torch import Tensor
 
 
 class LGDS(torch.nn.Module):
@@ -56,10 +56,9 @@ class LGDS(torch.nn.Module):
         self.reg_Q = reg_Q
         self.residual_metric = residual_metric
 
-        assert residual_metric.lower() in {
-            "euclidean",
-            "q",
-        }, "residual_metric must be one of {'euclidean', 'q'}"
+        assert residual_metric.lower() in {"euclidean", "q"}, (
+            "residual_metric must be one of {'euclidean', 'q'}"
+        )
 
     def construct_n_plus(self, x: Tensor, s: Tensor):
         """Construct the set N_+ = {j | s_j > s_i and x_j is a neighbor of x_i} for each i.
@@ -153,11 +152,7 @@ class LGDS(torch.nn.Module):
         self.Q.data.copy_(Q.to(device=self.Q.device, dtype=self.Q.dtype))
 
     def _solve_block_tridiagonal(
-        self,
-        diag_blocks,
-        lower_blocks,
-        upper_blocks,
-        rhs_blocks: Tensor,
+        self, diag_blocks, lower_blocks, upper_blocks, rhs_blocks: Tensor
     ) -> Tensor:
         """Solve a block-tridiagonal linear system with a block Thomas algorithm.
 
@@ -213,11 +208,7 @@ class LGDS(torch.nn.Module):
 
         return torch.stack(x_blocks, dim=1)
 
-    def get_single_trajectory(
-        self,
-        z_0: Tensor,
-        z_T: Tensor,
-    ):
+    def get_single_trajectory(self, z_0: Tensor, z_T: Tensor):
         """Compute trajectories between z_0 and z_T using the learned model.
 
         This solves the constrained minimization with fixed endpoints:
@@ -295,11 +286,7 @@ class LGDS(torch.nn.Module):
 
         return traj.to(device=out_device, dtype=out_dtype)
 
-    def get_trajectories(
-        self,
-        z_0: Tensor,
-        z_T: Tensor,
-    ):
+    def get_trajectories(self, z_0: Tensor, z_T: Tensor):
         """Compute trajectories between z_0 and z_T using the learned model.
 
         This solves the constrained minimization with fixed endpoints:

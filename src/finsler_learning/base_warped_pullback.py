@@ -1,9 +1,11 @@
-import torch
 import kmedoids
+import torch
 
 
 class VarGP(torch.nn.Module):
-    def __init__(self, centroids: torch.Tensor, K: int = None, tau: float = None):
+    def __init__(
+        self, centroids: torch.Tensor, K: int | None = None, tau: float | None = None
+    ):
         super().__init__()
 
         if centroids is not None:
@@ -128,8 +130,8 @@ class WarpedDecoder(torch.nn.Module):
         decoder: torch.nn.Module,
         centroids: torch.Tensor,
         beta: float = 1.0,
-        K: int = None,
-        tau: float = None,
+        K: int | None = None,
+        tau: float | None = None,
     ):
         super().__init__()
         self.decoder = decoder
@@ -159,11 +161,9 @@ class WarpedDecoder(torch.nn.Module):
         )  # (B, output_dim_dec + 1)
         return warped_output
 
+
 class FlatDecoderWrapper(torch.nn.Module):
-    def __init__(
-        self,
-        decoder: torch.nn.Module,
-    ):
+    def __init__(self, decoder: torch.nn.Module):
         super().__init__()
         self.decoder = decoder
 

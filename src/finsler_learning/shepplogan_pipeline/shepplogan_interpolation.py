@@ -1,27 +1,22 @@
-from geodesic_toolbox import (
-    CoMetric,
-    RandersMetrics,
-)
-from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
+from geodesic_toolbox import CoMetric, RandersMetrics
+
 from finsler_learning.base_classic_regressor import HybridRegressor
+from finsler_learning.base_geodesic_evaluation import (
+    GeodesicEvalFinslerConfig,
+    GeodesicEvalRiemannConfig,
+    GeodesicSolverParams,
+    geodesic_evaluation,
+)
+from finsler_learning.base_quality_evaluation import evaluate_framework
 from finsler_learning.shepplogan_pipeline.shepplogan_image_regressor import (
     get_image_regressor,
     get_vae_shepplogan_dataloaders,
 )
 from finsler_learning.shepplogan_pipeline.shepplogan_randers_training import get_omega
-from finsler_learning.base_geodesic_evaluation import (
-    GeodesicSolverParams,
-    GeodesicEvalFinslerConfig,
-    GeodesicEvalRiemannConfig,
-    geodesic_evaluation,
-)
-from finsler_learning.base_quality_evaluation import evaluate_framework
+from finsler_learning.shepplogan_pipeline.shepplogan_utils import *
 
 
-def get_model_regressor_trained(
-    export_path: Path,
-    device: torch.device,
-) -> HybridRegressor:
+def get_model_regressor_trained(export_path: Path, device: torch.device) -> HybridRegressor:
     regressor = get_image_regressor()
     try:
         state_dict = torch.load(export_path / "regressor.pth", weights_only=True)
@@ -80,22 +75,15 @@ def evaluate_monotonicity_spherical(
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor_trained(
-        export_path=export_path,
-        device=device,
-    ).to(dtype)
+    regressor = get_model_regressor_trained(export_path=export_path, device=device).to(dtype)
 
     dl_config = DatasetConfig(batch_size=batch_size)
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
-    LOGGER.info(f"Generating the images for the quality evaluation...")
+    LOGGER.info("Generating the images for the quality evaluation...")
     shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     LOGGER.info(f"Number of training samples: {len(shepp_logan_trainloader.dataset)}")
@@ -119,7 +107,7 @@ def evaluate_monotonicity_spherical(
         "solver_params": solver_params,
     }
     config_riemann = GeodesicEvalRiemannConfig(
-        export_path=export_path / f"geodesic_evaluation_spherical",
+        export_path=export_path / "geodesic_evaluation_spherical",
         cometric=IdentityCoMetric(),
         **common_params,
     )
@@ -151,22 +139,15 @@ def evaluate_monotonicity(
     model = model.to(device)
     model.eval()
 
-    regressor = get_model_regressor_trained(
-        export_path=export_path,
-        device=device,
-    ).to(dtype)
+    regressor = get_model_regressor_trained(export_path=export_path, device=device).to(dtype)
 
     dl_config = DatasetConfig(batch_size=batch_size)
     shepp_logan_trainloader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
-    LOGGER.info(f"Generating the images for the quality evaluation...")
+    LOGGER.info("Generating the images for the quality evaluation...")
     shepp_logan_trainloader_vae, _ = get_vae_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        latent_dim=latent_dim,
-        device=device,
-        export_path=export_path,
+        dataset_config=dl_config, latent_dim=latent_dim, device=device, export_path=export_path
     )
 
     if k is None:

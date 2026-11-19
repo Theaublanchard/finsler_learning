@@ -1,26 +1,26 @@
-import torch
+import logging
+import random
+from json import load as json_load
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import random
-import logging
-from pathlib import Path
-from tqdm import tqdm
-
-from torchvision.io import read_image
-from torchvision.transforms.v2 import ToTensor
+import torch
+from monai.transforms import (
+    Compose,
+    EnsureChannelFirst,
+    Identity,
+    LoadImage,
+    NormalizeIntensity,
+    Resize,
+    Spacing,
+)
+from nibabel import load as load_nifti
 from scipy.ndimage import gaussian_filter
 from skimage.draw import ellipse
-from nibabel import load as load_nifti
-from json import load as json_load
-
-from monai.transforms import LoadImage, EnsureChannelFirst, Spacing
-from monai.transforms import (
-    Resize,
-    ToTensor,
-    Compose,
-    NormalizeIntensity,
-    Identity,
-)
+from torchvision.io import read_image
+from torchvision.transforms.v2 import ToTensor
+from tqdm import tqdm
 
 from .models import BaseVAE
 
@@ -36,7 +36,7 @@ class SheppLoganDataset(torch.utils.data.Dataset):
         transform=None,
         key: str = "ventricle1",
         normalize_area: bool = True,
-        export_path: Path = None,
+        export_path: Path | None = None,
         train: bool = True,
         label_noise: float = 0.0,
     ):
@@ -67,7 +67,7 @@ class SheppLoganDataset(torch.utils.data.Dataset):
             Whether to generate the train or test set.
         label_noise : float
             Amount of noise to add to the labels as normal distribution. Default is 0.0 (no noise).
-            The amount correspond to percetnages of the standard deviation of the labels. 
+            The amount correspond to percetnages of the standard deviation of the labels.
             For example, if label_noise=0.1, then the noise added to the labels will be sampled from a normal distribution with mean 0 and standard deviation 0.1 * std(labels).
         """
         self.img_size = img_size
@@ -298,9 +298,7 @@ class SheppLoganDataset(torch.utils.data.Dataset):
         export_path_test = export_path / "test_samples.pth"
         if self.train and export_path_train.is_file():
             return True
-        if not self.train and export_path_test.is_file():
-            return True
-        return False
+        return bool(not self.train and export_path_test.is_file())
 
     def create_dataset(self, export_path: Path, label_noise: float = 0.0):
         imgs, labels = self._generate_fold()
@@ -324,7 +322,7 @@ class SheppLoganDataset(torch.utils.data.Dataset):
             export_path_test = export_path / "test_samples.pth"
             torch.save((imgs, labels), export_path_test)
             logger.info(f"Test dataset saved at {export_path_test}.")
-            
+
     def _generate_fold(self):
         imgs, labels = [], []
         for i in tqdm(range(self.num_samples)):
@@ -337,9 +335,7 @@ class SheppLoganDataset(torch.utils.data.Dataset):
 
     def _load_data(self, export_path: Path):
         imgs, labels = torch.load(
-            export_path,
-            weights_only=False,
-            map_location=torch.device("cpu"),
+            export_path, weights_only=False, map_location=torch.device("cpu")
         )
         self.x = imgs
         self.y = labels
@@ -372,7 +368,7 @@ class VAESheppLoganDataset(SheppLoganDataset):
         transform=None,
         key: str = "ventricle1",
         normalize_area: bool = True,
-        export_path: Path = None,
+        export_path: Path | None = None,
         train: bool = True,
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ):
@@ -445,8 +441,8 @@ class ACDCDataset(torch.utils.data.Dataset):
         use_base_transform: bool = True,
         return_dummy_label: bool = False,
         return_nii_infos: bool = False,
-        mean: float = None,
-        std: float = None,
+        mean: float | None = None,
+        std: float | None = None,
     ):
         super().__init__()
         self.train = train
@@ -514,10 +510,7 @@ class ACDCDataset(torch.utils.data.Dataset):
         img, LV_vol_ml, voxel_volume = self.fetch_images(img_path)
         if self.return_nii_infos:
             nii = load_nifti(str(img_path))
-            nii_infos = {
-                "affine": nii.affine,
-                "header": nii.header,
-            }
+            nii_infos = {"affine": nii.affine, "header": nii.header}
             return img, LV_vol_ml, nii_infos
         return img, LV_vol_ml
 
@@ -530,7 +523,7 @@ class EllipsisDataset(torch.utils.data.Dataset):
         transform=None,
         return_area: bool = False,
         train: bool = True,
-        export_path: Path = None,
+        export_path: Path | None = None,
         circle_only: bool = False,
     ):
         super().__init__()
@@ -606,15 +599,10 @@ class EllipsisDataset(torch.utils.data.Dataset):
 
     def _load_data(self, export_path: Path):
         images, areas = torch.load(
-            export_path,
-            weights_only=False,
-            map_location=torch.device("cpu"),
+            export_path, weights_only=False, map_location=torch.device("cpu")
         )
         self.images = images
         self.areas = areas
-
-    def __len__(self):
-        return self.num_samples
 
     def __getitem__(self, index):
         if self.export_path is None:
@@ -634,16 +622,14 @@ class HC18Dataset(torch.utils.data.Dataset):
         dataset_path: Path = Path("/home/tblanchard/phd/hdd/processed_data/HC18"),
         folds: str = "train",
         transform=None,
-        export_path: Path = None,
+        export_path: Path | None = None,
         val_frac: float = 0.2,
         return_annots: bool = False,
     ):
         super().__init__()
-        assert folds in [
-            "train",
-            "val",
-            "test",
-        ], f"Folds must be one of ['train', 'val', 'test'], got {folds}"
+        assert folds in ["train", "val", "test"], (
+            f"Folds must be one of ['train', 'val', 'test'], got {folds}"
+        )
 
         if return_annots and transform is not None:
             raise ValueError("Cannot apply transform when return_annots is True.")
@@ -675,7 +661,9 @@ class HC18Dataset(torch.utils.data.Dataset):
             df_info = None
         return df_info
 
-    def load_and_split_dataset(self, train_frac: float, folds: str, save_folder: Path = None):
+    def load_and_split_dataset(
+        self, train_frac: float, folds: str, save_folder: Path | None = None
+    ):
         logger = logging.getLogger()
 
         df_info = self.load_data_(folds, save_folder)
@@ -737,7 +725,7 @@ class KOMATSUNADataset(torch.utils.data.Dataset):
         dataset_path: Path = Path("/home/tblanchard/phd/hdd/processed_data/komatsuna"),
         train: bool = True,
         transform=None,
-        export_path: Path = None,
+        export_path: Path | None = None,
         val_frac: float = 0.2,
         return_annots: bool = False,
     ):
@@ -772,7 +760,7 @@ class KOMATSUNADataset(torch.utils.data.Dataset):
             df_info = None
         return df_info
 
-    def load_and_split_dataset(self, train_frac: float, save_folder: Path = None):
+    def load_and_split_dataset(self, train_frac: float, save_folder: Path | None = None):
         logger = logging.getLogger()
 
         df_info = self.load_data_(save_folder)

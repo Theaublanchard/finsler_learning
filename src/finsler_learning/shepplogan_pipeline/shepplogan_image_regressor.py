@@ -1,5 +1,6 @@
 from finsler_learning.base_regressor_trainer import RegressorConfig, regressor_trainer
 from finsler_learning.models import ConvRegressor
+
 from .shepplogan_utils import *
 
 
@@ -84,9 +85,7 @@ def train_regressor(
 ):
     regressor = get_image_regressor()
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     shepplogan_train_loader, shepp_logan_test_loader = get_vae_shepplogan_dataloaders(
         dataset_config=dl_config,
         latent_dim=latent_dim,
@@ -96,15 +95,9 @@ def train_regressor(
     )
 
     loss_fn = torch.nn.MSELoss()
-    optim = torch.optim.Adam(
-        regressor.parameters(),
-        lr=lr,
-        weight_decay=wd,
-    )
+    optim = torch.optim.Adam(regressor.parameters(), lr=lr, weight_decay=wd)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optim,
-        T_max=n_epochs,
-        eta_min=1e-6,
+        optimizer=optim, T_max=n_epochs, eta_min=1e-6
     )
     config = RegressorConfig(
         n_epochs=n_epochs,

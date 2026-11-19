@@ -1,12 +1,11 @@
+import logging
+from functools import partial
+from multiprocessing import Pool
+
 import numpy as np
 import torch
 from scipy.ndimage import binary_fill_holes
-from skimage import morphology
-from skimage import measure
-from multiprocessing import Pool
-from functools import partial
-import logging
-
+from skimage import measure, morphology
 
 LOGGER = logging.getLogger(__name__)
 
@@ -152,7 +151,7 @@ def regress_single_image(
         if return_valid:
             return fitted_ellipse_area, True
         return fitted_ellipse_area
-    except ValueError as e:
+    except ValueError:
         # LOGGER.error(f"Error processing image: {e}")
         if return_valid:
             return 0.0, False

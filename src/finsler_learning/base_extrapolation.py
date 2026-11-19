@@ -1,19 +1,19 @@
+import logging
 from dataclasses import dataclass
 from datetime import datetime
-import torch
-from torch import Tensor
 from pathlib import Path
-from tqdm import tqdm
-import logging
 
-from geodesic_toolbox import (
-    CoMetric,
-    RandersMetrics,
-    ExpMapRiemann,
-    ExpMapRanders,
+import torch
+from geodesic_toolbox import CoMetric, ExpMapRanders, ExpMapRiemann, RandersMetrics
+from torch import Tensor
+from tqdm import tqdm
+
+from .base_geodesic_evaluation import ALL_METRICS, retrieve_time_from_traj
+from .base_random_exp_map import (
+    RandomExpMapRanders,
+    RandomExpMapRiemann,
+    RandomExpMapRiemannBiaised,
 )
-from .base_geodesic_evaluation import retrieve_time_from_traj, ALL_METRICS
-from .base_random_exp_map import RandomExpMapRiemann, RandomExpMapRanders, RandomExpMapRiemannBiaised
 from .spherical_tools import RandomSphericalExpMap
 
 logger = logging.getLogger(__name__)
@@ -69,9 +69,7 @@ def get_kappa(d: int, eta: float) -> float:
     return (eta * d - eta**3) / (1 - eta**2)
 
 
-def get_exp_map(
-    config: ExtrapolationEvalRiemannConfig,
-) -> ExpMapRiemann | ExpMapRanders:
+def get_exp_map(config: ExtrapolationEvalRiemannConfig) -> ExpMapRiemann | ExpMapRanders:
     """Get the exponential map object based on the configuration."""
     if isinstance(config, ExtrapolationEvalFinslerConfig):
         exp_map = ExpMapRanders(
@@ -179,8 +177,7 @@ def filter_traj_nan(traj: torch.Tensor) -> torch.Tensor | None:
 
 
 def compute_extrapolated_trajectories(
-    config: ExtrapolationEvalRiemannConfig,
-    dataloader_test: torch.utils.data.DataLoader,
+    config: ExtrapolationEvalRiemannConfig, dataloader_test: torch.utils.data.DataLoader
 ) -> Tensor:
     """
     Compute the extrapolated trajectories for the test set.
@@ -228,8 +225,7 @@ def compute_extrapolated_trajectories(
 
 @torch.no_grad()
 def evaluate_extrapolated_trajectories(
-    config: ExtrapolationEvalRiemannConfig,
-    traj_test: Tensor,
+    config: ExtrapolationEvalRiemannConfig, traj_test: Tensor
 ) -> tuple[dict[str, Tensor], Tensor]:
     """
     Evaluate already-computed extrapolated trajectories.
@@ -250,9 +246,7 @@ def evaluate_extrapolated_trajectories(
     """
     logger.info("Retrieving time from extrapolated trajectories...")
     t_pred_test = retrieve_time_from_traj(
-        traj=traj_test,
-        decoder=config.decoder,
-        regressor=config.regressor,
+        traj=traj_test, decoder=config.decoder, regressor=config.regressor
     )
 
     if config.post_process_labels is not None:
@@ -265,16 +259,6 @@ def evaluate_extrapolated_trajectories(
     return metrics_test, t_pred_test.cpu().detach()
 
 
-def export_extrapolated_trajectories(
-    config: ExtrapolationEvalRiemannConfig,
-    traj_test: Tensor,
-) -> None:
-    """Export the extrapolated trajectories to a file."""
-    export_path = config.export_path
-    export_path.mkdir(parents=True, exist_ok=True)
-    torch.save(traj_test, export_path / "extrapolated_traj_test.pth")
-
-
 def compute_extrapolation_evaluation(
     config: ExtrapolationEvalRiemannConfig,
 ) -> tuple[dict[str, Tensor], Tensor]:
@@ -283,30 +267,22 @@ def compute_extrapolation_evaluation(
     logger.info(f"Shape of the test extrapolated trajectories: {traj_test.shape}")
 
     metrics_test, t_pred_test = evaluate_extrapolated_trajectories(
-        config=config,
-        traj_test=traj_test,
+        config=config, traj_test=traj_test
     )
 
-    torch.save(
-        t_pred_test,
-        config.export_path / "extrapolated_time_test.pth",
-    )
+    torch.save(t_pred_test, config.export_path / "extrapolated_time_test.pth")
     return metrics_test, t_pred_test
 
 
 def export_extrapolation_evaluation(
-    config: ExtrapolationEvalRiemannConfig,
-    metrics_test: dict[str, Tensor],
+    config: ExtrapolationEvalRiemannConfig, metrics_test: dict[str, Tensor]
 ) -> None:
     """Export extrapolation evaluation metrics to files."""
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
     for name, metric_values in metrics_test.items():
-        torch.save(
-            metric_values,
-            export_path / f"extrapolation_{name}_test.pth",
-        )
+        torch.save(metric_values, export_path / f"extrapolation_{name}_test.pth")
 
 
 def get_metrics_summary(metrics: dict[str, Tensor]) -> dict[str, float]:
@@ -331,8 +307,7 @@ def get_metrics_summary(metrics: dict[str, Tensor]) -> dict[str, float]:
 
 
 def export_extrapolated_trajectories(
-    config: ExtrapolationEvalRiemannConfig,
-    traj_test: Tensor,
+    config: ExtrapolationEvalRiemannConfig, traj_test: Tensor
 ) -> None:
     """
     Exports the extrapolated trajectories to a file.
@@ -347,12 +322,11 @@ def export_extrapolated_trajectories(
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
-    torch.save(traj_test, export_path / f"extrapolated_traj_test.pth")
+    torch.save(traj_test, export_path / "extrapolated_traj_test.pth")
 
 
 def export_extrapolated_time(
-    config: ExtrapolationEvalRiemannConfig,
-    t_pred_test: Tensor,
+    config: ExtrapolationEvalRiemannConfig, t_pred_test: Tensor
 ) -> None:
     """
     Exports the predicted time for the extrapolated trajectories to a file.
@@ -367,20 +341,17 @@ def export_extrapolated_time(
     export_path = config.export_path
     export_path.mkdir(parents=True, exist_ok=True)
 
-    torch.save(t_pred_test, export_path / f"extrapolated_time_test.pth")
+    torch.save(t_pred_test, export_path / "extrapolated_time_test.pth")
 
 
-def extrapolation_evaluation(
-    config: ExtrapolationEvalRiemannConfig,
-) -> tuple[Tensor, Tensor]:
+def extrapolation_evaluation(config: ExtrapolationEvalRiemannConfig) -> tuple[Tensor, Tensor]:
     """Compute/export trajectories first, then evaluate the exported trajectories."""
     start_time = datetime.now()
 
     # Phase 1: compute and export trajectories.
     logger.info("Computing extrapolated trajectories for test set...")
     traj_test = compute_extrapolated_trajectories(
-        config=config,
-        dataloader_test=config.dataloader_test,
+        config=config, dataloader_test=config.dataloader_test
     )
     export_extrapolated_trajectories(config, traj_test)
 
@@ -390,7 +361,7 @@ def extrapolation_evaluation(
 
     summary_test = get_metrics_summary(metrics_test)
     logger.info("Extrapolation evaluation results:")
-    for name in ALL_METRICS.keys():
+    for name in ALL_METRICS:
         logger.info(
             f"{name.upper()}"
             f" - Test: mean={summary_test[name]['mean']:.4f} +- "

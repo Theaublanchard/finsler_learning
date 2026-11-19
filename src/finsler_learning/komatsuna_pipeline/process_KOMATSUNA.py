@@ -1,11 +1,11 @@
-import torch
 from pathlib import Path
-from torch import Tensor
-import matplotlib.pyplot as plt
-from torchvision.io import read_image, write_png
-from torchvision.transforms.v2 import Resize, InterpolationMode
-import tqdm
+
 import pandas as pd
+import torch
+import tqdm
+from torch import Tensor
+from torchvision.io import read_image, write_png
+from torchvision.transforms.v2 import InterpolationMode, Resize
 
 TARGET_SIZE = (256, 256)
 
@@ -25,11 +25,13 @@ def apply_gamma_correction(img: Tensor, gamma: float) -> Tensor:
     img_corrected = (img_corrected * 255).clamp(0, 255)
     return img_corrected.to(torch.uint8)
 
+
 def compute_area(label_path: Path) -> float:
     annot = read_image(label_path)  # (3, H, W)
     annot_bw = (annot != 0).any(dim=0).double()  # (H,W)
     area = float(annot_bw.sum()) / (annot_bw.shape[0] * annot_bw.shape[1])
     return area
+
 
 def main():
     ds_path = Path("/home/tblanchard/phd/hdd/raw_data/komatsuna")
@@ -59,9 +61,7 @@ def main():
         img = Resize(TARGET_SIZE)(img)  # (3, H', W')
         label_bw = Resize(TARGET_SIZE, interpolation=InterpolationMode.NEAREST)(
             label_bw.unsqueeze(0)
-        ).squeeze(
-            0
-        )  # (H',W')
+        ).squeeze(0)  # (H',W')
         # Remap to 3 channels to export as PNG
         label_bw = label_bw.unsqueeze(0).repeat(3, 1, 1)  # (3, H', W')
 

@@ -7,7 +7,6 @@ from pathlib import Path
 import pandas as pd
 import torch
 
-
 DEFAULT_BASE_PATH = (
     Path(__file__).resolve().parents[3]
     / "results/shepplogan/runs_2026-11-11_extrapolation_ablation"

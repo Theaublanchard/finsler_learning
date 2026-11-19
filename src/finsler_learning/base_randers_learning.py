@@ -1,17 +1,18 @@
 # Learn an hyperplane model for the Randers metric
-import torch
 import logging
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import torch
+from geodesic_toolbox import CoMetric, IdentityCoMetric
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from geodesic_toolbox import CoMetric, IdentityCoMetric
 from .losses import GroupedMarginLoss
-from .models import BaseEncoder, Omega, DummyAccuracyPredictor
+from .models import BaseEncoder, DummyAccuracyPredictor, Omega
 
 
 @dataclass
@@ -200,9 +201,7 @@ def train_direction(config: RandersLearningConfig) -> tuple[Omega, list, list, l
     else:
         cometric = config.cometric
     optimizer = torch.optim.Adam(
-        omega.direction.parameters(),
-        weight_decay=config.weight_decay,
-        lr=config.lr,
+        omega.direction.parameters(), weight_decay=config.weight_decay, lr=config.lr
     )
     train_loss_dir_list, test_loss_dir_list = [], []
     train_loss_amp_list, test_loss_amp_list = [], []
@@ -312,9 +311,7 @@ def train_amplitude(
     else:
         cometric = config.cometric
     optimizer = torch.optim.Adam(
-        [
-            {"params": omega.amplitude.parameters(), "lr": config.lr / 2},
-        ],
+        [{"params": omega.amplitude.parameters(), "lr": config.lr / 2}],
         weight_decay=config.weight_decay,
         lr=config.lr,
     )
@@ -434,20 +431,8 @@ def export_accuracy_hyperplane(
     export_path.mkdir(parents=True, exist_ok=True)
 
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-    sns.histplot(
-        acc_train.numpy(),
-        color="blue",
-        label="Train",
-        ax=ax[0],
-        bins=20,
-    )
-    sns.histplot(
-        acc_test.numpy(),
-        color="orange",
-        label="Test",
-        ax=ax[1],
-        bins=20,
-    )
+    sns.histplot(acc_train.numpy(), color="blue", label="Train", ax=ax[0], bins=20)
+    sns.histplot(acc_test.numpy(), color="orange", label="Test", ax=ax[1], bins=20)
     for axis in ax:
         axis.set_xlabel("Accuracy")
         axis.set_ylabel("Count")

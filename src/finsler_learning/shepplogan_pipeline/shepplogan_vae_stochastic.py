@@ -1,18 +1,18 @@
-import torch
 from pathlib import Path
 
-from ..base_vae_trainer import vae_trainer, VAEConfig
+import torch
 
+from ..base_vae_trainer import VAEConfig, vae_trainer
+from ..models import StochasticVAE
 from .shepplogan_utils import (
     DEVICE,
     IMG_SIZE,
     LOGGER,
+    DatasetConfig,
     get_shepplogan_dataloaders,
     get_stochastic_models,
-    DatasetConfig,
 )
 from .shepplogan_vae import CondVAELoss
-from ..models import StochasticVAE
 
 
 ################################################################
@@ -34,16 +34,12 @@ def train_vae_log_var_decoder_branch(
     device: torch.device = DEVICE,
 ) -> tuple[torch.nn.Module, list, list]:
 
-    LOGGER.info(f"Training the log_var_branch of the decoder of a StochasticVAE model...")
-    LOGGER.info(f"Exporting model to {export_path/'stochastic_vae'}")
+    LOGGER.info("Training the log_var_branch of the decoder of a StochasticVAE model...")
+    LOGGER.info(f"Exporting model to {export_path / 'stochastic_vae'}")
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-        label_noise=label_noise,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size, label_noise=label_noise)
     shepplogan_train_loader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     if K is None:
@@ -60,14 +56,10 @@ def train_vae_log_var_decoder_branch(
     # Train only the log_var_branch of the decoder.
     # Not the encoder and the mu_branch of the decoder
     optim = torch.optim.Adam(
-        model.decoder.log_var_branch.parameters(),
-        lr=lr,
-        weight_decay=weight_decay,
+        model.decoder.log_var_branch.parameters(), lr=lr, weight_decay=weight_decay
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optim,
-        T_max=n_epochs,
-        eta_min=1e-6,
+        optimizer=optim, T_max=n_epochs, eta_min=1e-6
     )
     loss_fn = CondVAELoss(beta=beta, lbda=lbda, lpip_weight=lpip_weight)
     task_config = VAEConfig(

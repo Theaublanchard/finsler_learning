@@ -1,13 +1,13 @@
 import datetime
 
-from finsler_learning.models import (
-    HyperPlanPredictor,
-    DummyAccuracyPredictor,
-    AccuracyPredictor,
-    Omega,
-)
 from finsler_learning.base_randers_learning import RandersLearningConfig, train_hyperplane
 from finsler_learning.losses import MarginLoss
+from finsler_learning.models import (
+    AccuracyPredictor,
+    DummyAccuracyPredictor,
+    HyperPlanPredictor,
+    Omega,
+)
 
 from .shepplogan_utils import *
 
@@ -17,15 +17,13 @@ from .shepplogan_utils import *
 #################################################################
 def get_omega(latent_dim: int, cometric: CoMetric, use_dummy_accuracy: bool = False):
     phi = HyperPlanPredictor(
-        latent_dim=latent_dim,
-        hidden_dims=[latent_dim // 2, latent_dim // 2],
+        latent_dim=latent_dim, hidden_dims=[latent_dim // 2, latent_dim // 2]
     )
     if use_dummy_accuracy:
         accuracy_predictor = DummyAccuracyPredictor()
     else:
         accuracy_predictor = AccuracyPredictor(
-            latent_dim=latent_dim,
-            hidden_dims=[latent_dim // 2, latent_dim // 4],
+            latent_dim=latent_dim, hidden_dims=[latent_dim // 2, latent_dim // 4]
         )
     omega = Omega(direction=phi, amplitude=accuracy_predictor, cometric=cometric)
     return omega
@@ -49,12 +47,9 @@ def train_randers(
 
     LOGGER.info(f"Training Randers metric with cometric type: {cometric_type}")
 
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size)
     shepplogan_train_loader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
 
     if k is None:

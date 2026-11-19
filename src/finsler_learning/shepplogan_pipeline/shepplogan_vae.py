@@ -1,17 +1,17 @@
-import torch
 from pathlib import Path
+
+import torch
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
-from finsler_learning.losses import VAELoss, MS_SSIMLoss, Losse
-from finsler_learning.base_vae_trainer import vae_trainer, VAEConfig
+from finsler_learning.base_vae_trainer import VAEConfig, vae_trainer
+from finsler_learning.losses import Losse, MS_SSIMLoss, VAELoss
 
 from .shepplogan_utils import (
     DEVICE,
     IMG_SIZE,
-    LOGGER,
-    get_shepplogan_dataloaders,
-    get_models,
     DatasetConfig,
+    get_models,
+    get_shepplogan_dataloaders,
 )
 
 
@@ -24,11 +24,11 @@ class CondVAELoss(Losse):
         beta: float = 1.0,
         free_bits: float = 0.0,
         lbda: float = 0.0,
-        lpip_weight: float = None,
+        lpip_weight: float | None = None,
         device=DEVICE,
         l1_weight: float = 0.0,
     ):
-        super(CondVAELoss, self).__init__()
+        super().__init__()
         self.lbda = lbda
         self.lpip_weight = lpip_weight
         self.l1_weight = l1_weight
@@ -41,9 +41,7 @@ class CondVAELoss(Losse):
         if lpip_weight is not None and lpip_weight > 0.0:
             self.lpip_loss = LearnedPerceptualImagePatchSimilarity(
                 net_type="vgg", normalize=True, reduction="mean"
-            ).to(
-                device
-            )  # uses a ton of VRAM
+            ).to(device)  # uses a ton of VRAM
 
     @property
     def beta(self) -> float:
@@ -54,7 +52,7 @@ class CondVAELoss(Losse):
         self.vae_loss.beta = value
 
     def forward(
-        self, x_recon, x, mu, log_var_latent,log_var_data, return_components: bool = False,
+        self, x_recon, x, mu, log_var_latent, log_var_data, return_components: bool = False
     ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Parameters:
@@ -119,25 +117,15 @@ def train_vae(
     label_noise: float,
     device: torch.device = DEVICE,
 ) -> tuple[torch.nn.Module, list, list]:
-    dl_config = DatasetConfig(
-        batch_size=batch_size,
-        label_noise=label_noise,
-    )
+    dl_config = DatasetConfig(batch_size=batch_size, label_noise=label_noise)
     shepplogan_train_loader, shepp_logan_test_loader = get_shepplogan_dataloaders(
-        dataset_config=dl_config,
-        export_path=export_path,
+        dataset_config=dl_config, export_path=export_path
     )
     model = get_models(latent_dim=latent_dim)
     # try_load_pretrained_models(export_path, model)
-    optim = torch.optim.Adam(
-        model.parameters(),
-        lr=lr,
-        weight_decay=weight_decay,
-    )
+    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optim,
-        T_max=n_epochs,
-        eta_min=1e-6,
+        optimizer=optim, T_max=n_epochs, eta_min=1e-6
     )
     loss_fn = CondVAELoss(beta=beta, lbda=lbda, lpip_weight=lpip_weight)
     task_config = VAEConfig(

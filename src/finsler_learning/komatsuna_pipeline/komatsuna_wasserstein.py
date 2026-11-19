@@ -1,23 +1,21 @@
-from argparse import ArgumentParser
 import json
-from pathlib import Path
 import logging
+from argparse import ArgumentParser
+from pathlib import Path
+
+import torch
+
 from finsler_learning.base_wasserstein_learning import WassersteinConfig
 from finsler_learning.base_wasserstein_learning import main as wasserstein_main
+from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import get_model_regressor
+from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import get_vae_komatsuna_dataloaders
 from finsler_learning.komatsuna_pipeline.komatsuna_utils import (
+    DatasetConfig,
     KomatsunaPipelineConfig,
+    get_komatsuna_dataloaders,
     get_models,
     try_load_pretrained_models,
-    DatasetConfig,
-    get_komatsuna_dataloaders,
 )
-from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import (
-    get_model_regressor,
-)
-from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
-    get_vae_komatsuna_dataloaders,
-)
-import torch
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +29,13 @@ def parse_args():
         help="Path to the folder containing the pretrained model and the config",
     )
     parser.add_argument(
-        "--n_bins",
-        type=int,
-        default=10,
-        help="Number of bins to discretize the data",
+        "--n_bins", type=int, default=10, help="Number of bins to discretize the data"
     )
     parser.add_argument(
-        "--n_epochs",
-        type=int,
-        default=500,
-        help="Number of epochs for potential training",
+        "--n_epochs", type=int, default=500, help="Number of epochs for potential training"
     )
     parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-3,
-        help="Learning rate for potential training",
+        "--lr", type=float, default=1e-3, help="Learning rate for potential training"
     )
     parser.add_argument(
         "--eval_quality",
@@ -66,8 +55,7 @@ def load_base_config(base_path: Path) -> KomatsunaPipelineConfig:
 
 
 def load_pretrained_models(
-    config: KomatsunaPipelineConfig,
-    load_quality_reference: bool = False,
+    config: KomatsunaPipelineConfig, load_quality_reference: bool = False
 ):
     model = get_models(latent_dim=config.latent_dim)
     try_load_pretrained_models(config.export_path, model)
@@ -81,12 +69,9 @@ def load_pretrained_models(
         n_epochs=config.n_epochs_nnunet,
     )
 
-    dl_config = DatasetConfig(
-        batch_size=config.b_size_evaluation,
-    )
+    dl_config = DatasetConfig(batch_size=config.b_size_evaluation)
     komatsuna_train_loader, komatsuna_test_loader = get_komatsuna_dataloaders(
-        dataset_config=dl_config,
-        export_path=config.export_path,
+        dataset_config=dl_config, export_path=config.export_path
     )
 
     logger.info(f"Number of training samples: {len(komatsuna_train_loader.dataset)}")
