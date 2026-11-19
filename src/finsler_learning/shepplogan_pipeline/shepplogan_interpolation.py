@@ -210,6 +210,8 @@ def evaluate_monotonicity(
     for cometric_type, cometric_info in VALID_COMETRIC_TYPES.items():
         if cometric_info["needs_spline"]:
             continue
+        if cometric_info.get("is_riemann_biased", False):
+            continue
         evaluate_mono_inter_setup(
             export_path,
             latent_dim,
@@ -241,6 +243,8 @@ def evaluate_monotonicity(
     }
     for cometric_type, cometric_info in VALID_COMETRIC_TYPES.items():
         if not cometric_info["needs_spline"]:
+            continue
+        if cometric_info.get("is_riemann_biased", False):
             continue
         evaluate_mono_inter_setup(
             export_path,

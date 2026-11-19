@@ -158,3 +158,30 @@ class WarpedDecoder(torch.nn.Module):
             [x_hat_flat, self.beta * s_z.unsqueeze(1)], dim=1
         )  # (B, output_dim_dec + 1)
         return warped_output
+
+class FlatDecoderWrapper(torch.nn.Module):
+    def __init__(
+        self,
+        decoder: torch.nn.Module,
+    ):
+        super().__init__()
+        self.decoder = decoder
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the warped decoder.
+
+        Parameters
+        ----------
+        z : torch.Tensor (B, d)
+            Input tensor.
+
+        Returns
+        -------
+        torch.Tensor (B, output_dim)
+            The output of the warped decoder. Here the output size
+            is the product of the decoder output size + 1
+        """
+        x_hat = self.decoder(z)
+        x_hat_flat = x_hat.flatten(start_dim=1)  # (B, output_dim_dec)
+        return x_hat_flat

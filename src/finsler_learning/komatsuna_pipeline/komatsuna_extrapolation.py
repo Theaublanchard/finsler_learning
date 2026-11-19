@@ -13,6 +13,9 @@ from finsler_learning.base_quality_evaluation import evaluate_extrapolated_frame
 from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import (
     get_randers_metric_trained,
 )
+from finsler_learning.komatsuna_pipeline.prepare_biased_riemann import (
+    copy_files_to_biaised,
+)
 
 
 def evaluate_extrapolation(
@@ -88,8 +91,12 @@ def evaluate_extrapolation(
             cometric_type=cometric_type,
             device=device,
         ).to(dtype)
+        is_directionnal_riemann = cometric_info.get("is_riemann_biased", False)
 
-        if not no_symmetric:
+        if is_directionnal_riemann:
+            copy_files_to_biaised(export_path, cometric_type)
+
+        if not no_symmetric and not is_directionnal_riemann:
             LOGGER.info(f"- Evaluating {cometric_type} metric...")
             config_riemann = ExtrapolationEvalRiemannConfig(
                 export_path=export_path / f"extrapolation_evaluation_{cometric_type}",
@@ -101,7 +108,7 @@ def evaluate_extrapolation(
             if eval_quality:
                 evaluate_extrapolated_framework(config_riemann)
 
-        if not no_randers:
+        if not no_randers or is_directionnal_riemann:
             LOGGER.info(f"- Evaluating {cometric_type} Randers metric...")
             randers_metric = get_randers_metric_trained(
                 latent_dim=latent_dim,

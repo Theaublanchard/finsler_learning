@@ -112,7 +112,7 @@ def get_random_exp_map(
         logger.info("Using LGDS extrapolation.")
         raise NotImplementedError("LGDS extrapolation is not implemented yet.")
 
-    if config.export_path.name.endswith("biased"):
+    if config.export_path.name.endswith(("biased", "biased_randers")):
         logger = logging.getLogger()
         logger.info("Using biased Riemannian extrapolation.")
         exp_map = RandomExpMapRiemannBiaised(

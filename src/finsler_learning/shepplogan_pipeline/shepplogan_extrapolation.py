@@ -13,6 +13,7 @@ from finsler_learning.shepplogan_pipeline.shepplogan_interpolation import (
     get_model_regressor_trained,
     get_randers_metric_trained,
 )
+from finsler_learning.shepplogan_pipeline.prepare_biased_riemann import copy_files_to_biaised
 
 
 def evaluate_extrapolation_spherical(
@@ -28,7 +29,7 @@ def evaluate_extrapolation_spherical(
 ) -> None:
     model = get_spherical_model(latent_dim=latent_dim)
     dtype = next(model.parameters()).dtype
-    try_load_pretrained_models(export_path/"spherical_vae", model)
+    try_load_pretrained_models(export_path / "spherical_vae", model)
     model = model.to(device)
     model.eval()
 
@@ -161,8 +162,12 @@ def evaluate_extrapolation(
             cometric_type=cometric_type,
             device=device,
         ).to(dtype)
+        is_directionnal_riemann = cometric_info.get("is_riemann_biased", False)
 
-        if not no_symmetric:
+        if is_directionnal_riemann:
+            copy_files_to_biaised(export_path, cometric_type)
+
+        if not no_symmetric and not is_directionnal_riemann:
             LOGGER.info(f"- Evaluating {cometric_type} metric...")
             config_riemann = ExtrapolationEvalRiemannConfig(
                 export_path=export_path / f"extrapolation_evaluation_{cometric_type}",
@@ -174,7 +179,7 @@ def evaluate_extrapolation(
             if eval_quality:
                 evaluate_extrapolated_framework(config_riemann)
 
-        if not no_randers:
+        if not no_randers or is_directionnal_riemann:
             LOGGER.info(f"- Evaluating {cometric_type} Randers metric...")
             randers_metric = get_randers_metric_trained(
                 latent_dim=latent_dim,

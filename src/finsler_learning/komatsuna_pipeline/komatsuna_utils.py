@@ -43,6 +43,46 @@ VALID_COMETRIC_TYPES = {
     # "warped_pullback": {"needs_spline": True, "requires_stochastic_vae": False},
     # "rbf_pullback": {"needs_spline": True, "requires_stochastic_vae": True},
     # "pbig": {"needs_spline": True, "requires_stochastic_vae": True},
+    "euclidean_biased": {
+        "needs_spline": False,
+        "requires_stochastic_vae": False,
+        "is_riemann_biased": True,
+    },
+    "land_rbf_biased": {
+        "needs_spline": False,
+        "requires_stochastic_vae": False,
+        "is_riemann_biased": True,
+    },
+    "land_biased": {
+        "needs_spline": False,
+        "requires_stochastic_vae": False,
+        "is_riemann_biased": True,
+    },
+    "cov_centroids_biased": {
+        "needs_spline": False,
+        "requires_stochastic_vae": False,
+        "is_riemann_biased": True,
+    },
+    "pullback_centroids_biased": {
+        "needs_spline": True,
+        "requires_stochastic_vae": False,
+        "is_riemann_biased": True,
+    },
+    # "warped_pullback_biased": {
+    #     "needs_spline": True,
+    #     "requires_stochastic_vae": False,
+    #     "is_riemann_biased": True,
+    # },
+    # "rbf_pullback_biased": {
+    #     "needs_spline": True,
+    #     "requires_stochastic_vae": True,
+    #     "is_riemann_biased": True,
+    # },
+    # "pbig_biased": {
+    #     "needs_spline": True,
+    #     "requires_stochastic_vae": True,
+    #     "is_riemann_biased": True,
+    # },
 }
 
 
@@ -94,6 +134,7 @@ class KomatsunaPipelineConfig:
     eval_quality_extrapolation: bool = False
     eval_regressor: bool = False
     no_symmetric: bool = False
+    no_randers: bool = False
 
 
 @dataclass
@@ -504,6 +545,9 @@ def get_cometric(
     assert (
         cometric_type in VALID_COMETRIC_TYPES.keys()
     ), f"Invalid cometric_type: {cometric_type}. Must be one of {VALID_COMETRIC_TYPES.keys()}."
+
+    if cometric_type.endswith("_biased"):
+        cometric_type = cometric_type.replace("_biased", "")
 
     if cometric_type == "cov_centroids":
         cometric = get_cometric_cov_centroids(
