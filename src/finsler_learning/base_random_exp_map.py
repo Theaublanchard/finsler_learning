@@ -107,6 +107,9 @@ class RandomExpMapRiemann(torch.nn.Module):
     moving_avg_momentum : float| None
         If not None, the momentum are updated with a moving average with this momentum instead of being resampled at each step. Must be between 0 and 1.
         Higher values correspond to less random trajectories. Default is None (no moving average, resample at each step).
+    resample_every : int
+        The frequency at which the initial momentum is resampled. Default is 1 (resample at each step).
+        If set to T, the initial momentum is only resampled once at the beginning of the trajectory.
     """
 
     def __init__(
@@ -121,6 +124,7 @@ class RandomExpMapRiemann(torch.nn.Module):
         alpha: float | None = None,
         pbar: bool = False,
         moving_avg_momentum: float | None = None,
+        resample_every: int = 1,
     ):
         super().__init__()
         self.cometric = cometric
@@ -137,6 +141,7 @@ class RandomExpMapRiemann(torch.nn.Module):
         self.n_fix_pts = n_fix_pts
         self.pbar = pbar
         self.moving_avg_momentum = moving_avg_momentum
+        self.resample_every = resample_every
 
         self.H = HamiltonianRiemann(cometric=cometric)
 
@@ -230,7 +235,7 @@ class RandomExpMapRiemann(torch.nn.Module):
             v = v * self.alpha / torch.norm(v, dim=-1, keepdim=True)
         return v
 
-    def forward(self, q0: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, q0: Tensor, v0: Tensor = None) -> tuple[Tensor, Tensor]:
         """
         Computes the geodesic trajectory starting from position q0 and initial speed v0
 
@@ -238,6 +243,8 @@ class RandomExpMapRiemann(torch.nn.Module):
         ----------
         q0 : torch.Tensor (b, d)
             Initial position
+        v0 : torch.Tensor (b, d), optional
+            Initial speed. If not provided, it will be sampled from a normal distribution with covariance G(q0)^{-1} where G is the metric tensor.
 
         Returns
         -------
@@ -255,14 +262,20 @@ class RandomExpMapRiemann(torch.nn.Module):
             )
         else:
             pbar = range(self.T - 1)
-        v0 = self.sample_initial_speed(q0)
-        for _ in pbar:
-            if self.moving_avg_momentum is not None:
-                v0_ = self.sample_initial_speed(q0)
-                v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
-            else:
-                v0 = self.sample_initial_speed(q0)
-            p0 = self.legendre_transform(q0, v0)
+
+        v0_was_provided = v0 is not None
+        if v0 is None:
+            v0 = self.sample_initial_speed(q0)
+        p0 = self.legendre_transform(q0, v0)
+
+        for i in pbar:
+            if i % self.resample_every == 0 and not (i == 0 and v0_was_provided):
+                if self.moving_avg_momentum is not None:
+                    v0_ = self.sample_initial_speed(q0)
+                    v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
+                else:
+                    v0 = self.sample_initial_speed(q0)
+                p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
@@ -270,6 +283,7 @@ class RandomExpMapRiemann(torch.nn.Module):
             q0, p0, log_det = self.shooter.forward(
                 q0.detach(), p0.detach(), 2, return_traj=False
             )
+            v0 = self.inverse_legendre_transform(q0, p0)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
@@ -310,6 +324,9 @@ class RandomExpMapRanders(torch.nn.Module):
     moving_avg_momentum : float| None
         If not None, the momentum are updated with a moving average with this momentum instead of being resampled at each step. Must be between 0 and 1.
         Higher values correspond to less random trajectories. Default is None (no moving average, resample at each step).
+    resample_every : int
+        The number of integration steps to perform before resampling the initial momentum. Default is 1 (resample after every integration step).
+        If set to T, the initial momentum is only resampled once at the beginning of the trajectory.
     """
 
     def __init__(
@@ -325,6 +342,7 @@ class RandomExpMapRanders(torch.nn.Module):
         alpha: float = 1.0,
         pbar: bool = False,
         moving_avg_momentum: float | None = None,
+        resample_every: int = 1,
     ):
         super().__init__()
         self.randers = randers
@@ -343,6 +361,7 @@ class RandomExpMapRanders(torch.nn.Module):
         self.n_fix_pts = n_fix_pts
         self.pbar = pbar
         self.moving_avg_momentum = moving_avg_momentum
+        self.resample_every = resample_every
 
         self.dual_r = DualRandersMetrics(randers)
         self.H = HamiltonianRanders(randers=randers)
@@ -420,7 +439,24 @@ class RandomExpMapRanders(torch.nn.Module):
         v = torch.einsum("bij,bj->bi", g_inv, p)
         return v
 
-    def forward(self, q0: Tensor) -> tuple[Tensor, Tensor]:
+    def sample_initial_speed(self, q: Tensor) -> Tensor:
+        """
+        Sample an initial speed vector from a vMF distribution on the Randers manifold.
+
+        Parameters
+        ----------
+        q : torch.Tensor (b, d)
+            Position
+
+        Returns
+        -------
+        v : torch.Tensor (b, d)
+            Initial speed vector
+        """
+        v = sample_cone_VMF(q, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+        return v
+
+    def forward(self, q0: Tensor, v0: Tensor = None) -> tuple[Tensor, Tensor]:
         """
         Computes the geodesic trajectory starting from position q0 and initial speed v0
 
@@ -428,6 +464,8 @@ class RandomExpMapRanders(torch.nn.Module):
         ----------
         q0 : torch.Tensor (b, d)
             Initial position
+        v0 : torch.Tensor (b, d), optional
+            Initial speed. If not provided, it will be sampled from a vMF distribution.
 
         Returns
         -------
@@ -447,18 +485,21 @@ class RandomExpMapRanders(torch.nn.Module):
         else:
             pbar = range(self.T - 1)
 
-        v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
-        for _ in pbar:
-            if self.moving_avg_momentum is not None:
-                v0_ = sample_cone_VMF(
-                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
-                )
-                v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
-            else:
-                v0 = sample_cone_VMF(
-                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
-                )
-            p0 = self.legendre_transform(q0, v0)
+        v0_was_provided = v0 is not None
+        if v0 is None:
+            v0 = self.sample_initial_speed(q0)
+        p0 = self.legendre_transform(q0, v0)
+
+        for i in pbar:
+
+            if i % self.resample_every == 0 and not (i == 0 and v0_was_provided):
+                if self.moving_avg_momentum is not None:
+                    v0_ = self.sample_initial_speed(q0)
+                    v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
+                else:
+                    v0 = self.sample_initial_speed(q0)
+
+                p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
@@ -466,6 +507,7 @@ class RandomExpMapRanders(torch.nn.Module):
             q0, p0, log_det = self.shooter.forward(
                 q0.detach(), p0.detach(), 2, return_traj=False
             )
+            v0 = self.inverse_legendre_transform(q0, p0)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
@@ -508,6 +550,9 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
     moving_avg_momentum : float| None
         If not None, the momentum are updated with a moving average with this momentum instead of being resampled at each step. Must be between 0 and 1.
         Higher values correspond to less random trajectories. Default is None (no moving average, resample at each step).
+    resample_every : int
+        The frequency at which the initial momentum is resampled. Default is 1 (resample at each step).
+        If set to T, the initial momentum is only resampled once at the beginning of the trajectory.
     """
 
     def __init__(
@@ -523,6 +568,7 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
         alpha: float = 1.0,
         pbar: bool = False,
         moving_avg_momentum: float | None = None,
+        resample_every: int = 1,
     ):
         super().__init__()
         self.randers = randers
@@ -542,6 +588,7 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
         self.n_fix_pts = n_fix_pts
         self.pbar = pbar
         self.moving_avg_momentum = moving_avg_momentum
+        self.resample_every = resample_every
 
         self.dual_r = DualRandersMetrics(randers)
         self.H = HamiltonianRiemann(cometric=self.cometric)
@@ -617,7 +664,24 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
             G_inv_p = torch.einsum("bij,bj->bi", G_inv, p)
         return G_inv_p
 
-    def forward(self, q0: Tensor) -> tuple[Tensor, Tensor]:
+    def sample_initial_speed(self, q: Tensor) -> Tensor:
+        """
+        Sample an initial speed vector from a vMF distribution on the Randers manifold.
+
+        Parameters
+        ----------
+        q : torch.Tensor (b, d)
+            Position
+
+        Returns
+        -------
+        v : torch.Tensor (b, d)
+            Initial speed vector
+        """
+        v = sample_cone_VMF(q, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
+        return v
+
+    def forward(self, q0: Tensor, v0: Tensor = None) -> tuple[Tensor, Tensor]:
         """
         Computes the geodesic trajectory starting from position q0 and initial speed v0
 
@@ -625,6 +689,8 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
         ----------
         q0 : torch.Tensor (b, d)
             Initial position
+        v0 : torch.Tensor (b, d), optional
+            Initial speed. If not provided, it will be sampled from a vMF distribution.
 
         Returns
         -------
@@ -644,18 +710,19 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
         else:
             pbar = range(self.T - 1)
 
-        v0 = sample_cone_VMF(q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha)
-        for _ in pbar:
-            if self.moving_avg_momentum is not None:
-                v0_ = sample_cone_VMF(
-                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
-                )
-                v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
-            else:
-                v0 = sample_cone_VMF(
-                    q0, randers=self.randers, kappa=self.kappa, alpha=self.alpha
-                )
-            p0 = self.legendre_transform(q0, v0)
+        v0_was_provided = v0 is not None
+        if v0 is None:
+            v0 = self.sample_initial_speed(q0)
+        p0 = self.legendre_transform(q0, v0)
+
+        for i in pbar:
+            if i % self.resample_every == 0 and not (i == 0 and v0_was_provided):
+                if self.moving_avg_momentum is not None:
+                    v0_ = self.sample_initial_speed(q0)
+                    v0 = self.moving_avg_momentum * v0 + (1 - self.moving_avg_momentum) * v0_
+                else:
+                    v0 = self.sample_initial_speed(q0)
+                p0 = self.legendre_transform(q0, v0)
 
             q_t.append(q0.detach().clone())
             p_t.append(p0.detach().clone())
@@ -663,6 +730,7 @@ class RandomExpMapRiemannBiaised(torch.nn.Module):
             q0, p0, log_det = self.shooter.forward(
                 q0.detach(), p0.detach(), 2, return_traj=False
             )
+            v0 = self.inverse_legendre_transform(q0, p0)
 
         q_t.append(q0.detach().clone())
         p_t.append(p0.detach().clone())
