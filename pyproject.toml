@@ -43,7 +43,7 @@ requires = ["uv_build>=0.12.7,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-geodesic-toolbox = { git = "https://github.com/Theaublanchard/geodesic_toolbox", rev = "777867c433529ca2595f289f0d5312336170f6c4" }
+geodesic-toolbox = { git = "https://github.com/Theaublanchard/geodesic_toolbox", rev = "ec78b0fe19e92a69c84f403a04c30f81b0e3905b" }
 pytorchfwd = { git = "https://github.com/Theaublanchard/PyTorch-FWD", rev = "f41d82a911aa18b7c28aa0d93f98630d7518054f" }
 
 [tool.ruff]
