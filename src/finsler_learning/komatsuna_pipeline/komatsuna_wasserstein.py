@@ -14,6 +14,9 @@ from finsler_learning.komatsuna_pipeline.komatsuna_utils import (
 from finsler_learning.komatsuna_pipeline.komatsuna_interpolation import (
     get_model_regressor,
 )
+from finsler_learning.komatsuna_pipeline.komatsuna_nnunet import (
+    get_vae_komatsuna_dataloaders,
+)
 import torch
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,11 @@ def parse_args():
         default=1e-3,
         help="Learning rate for potential training",
     )
+    parser.add_argument(
+        "--eval_quality",
+        action="store_true",
+        help="Evaluate image quality of the extrapolated trajectories",
+    )
     return parser.parse_args()
 
 
@@ -53,11 +61,14 @@ def load_base_config(base_path: Path) -> KomatsunaPipelineConfig:
         config = json.load(f)
     config = KomatsunaPipelineConfig(**config)
     config.export_path = Path(config.export_path)
-    config.device=torch.device(config.device)
+    config.device = torch.device(config.device)
     return config
 
 
-def load_pretrained_models(config: KomatsunaPipelineConfig):
+def load_pretrained_models(
+    config: KomatsunaPipelineConfig,
+    load_quality_reference: bool = False,
+):
     model = get_models(latent_dim=config.latent_dim)
     try_load_pretrained_models(config.export_path, model)
     model = model.to(config.device)
@@ -85,16 +96,37 @@ def load_pretrained_models(config: KomatsunaPipelineConfig):
     decoder = model.decoder.to(config.device)
     encoder.eval()
     decoder.eval()
-    return encoder, decoder, regressor, komatsuna_train_loader, komatsuna_test_loader
+    komatsuna_trainloader_vae = None
+    if load_quality_reference:
+        komatsuna_trainloader_vae, _ = get_vae_komatsuna_dataloaders(
+            dataset_config=dl_config,
+            latent_dim=config.latent_dim,
+            device=config.device,
+            export_path=config.export_path,
+        )
+
+    return (
+        encoder,
+        decoder,
+        regressor,
+        komatsuna_train_loader,
+        komatsuna_test_loader,
+        komatsuna_trainloader_vae,
+    )
 
 
 def main(args):
     config = load_base_config(args.base_path)
     config.export_path = Path(config.export_path)
 
-    encoder, decoder, regressor, komatsuna_train_loader, komatsuna_test_loader = (
-        load_pretrained_models(config)
-    )
+    (
+        encoder,
+        decoder,
+        regressor,
+        komatsuna_train_loader,
+        komatsuna_test_loader,
+        komatsuna_trainloader_vae,
+    ) = load_pretrained_models(config, load_quality_reference=args.eval_quality)
 
     config_W2 = WassersteinConfig(
         export_path=config.export_path / "extrapolation_evaluation_wasserstein",
@@ -109,6 +141,9 @@ def main(args):
         n_epochs=args.n_epochs,
         device=config.device,
         T=config.n_pts,
+        batch_size=config.b_size_evaluation,
+        reference_dataloader_train=komatsuna_trainloader_vae,
+        eval_quality=args.eval_quality,
     )
 
     wasserstein_main(config_W2)
